@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Backend data (don't commit uploaded PDFs or vector stores)
+backend/uploads/
+backend/vector_stores/
+backend/documents_metadata.json
+
+# Node / React
+node_modules/
+dist/
+.eslintcache
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+*.log
