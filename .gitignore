@@ -18,6 +18,7 @@ backend/documents_metadata.json
 node_modules/
 dist/
 .eslintcache
+frontend/.env
 
 # IDE
 .vscode/

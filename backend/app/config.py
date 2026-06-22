@@ -16,7 +16,12 @@ class Settings(BaseSettings):
     retriever_k: int = 4  # how many chunks to retrieve per query
 
     # CORS
-    allowed_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    allowed_origins: list[str] = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
 
     model_config = ConfigDict(env_file=".env")
 
