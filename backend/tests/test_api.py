@@ -4,7 +4,6 @@ Tests for the DocChat API.
 Note: Chat and upload tests require Ollama running locally.
 Health, document validation and device detection tests run without Ollama.
 """
-import pytest
 from unittest.mock import patch
 from fastapi.testclient import TestClient
 from app.main import app
