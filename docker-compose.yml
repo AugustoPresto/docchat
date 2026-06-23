@@ -4,8 +4,6 @@ services:
   ollama:
     image: ollama/ollama:latest
     container_name: docchat-ollama
-    ports:
-      - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
     restart: unless-stopped
@@ -26,7 +24,7 @@ services:
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
       - OLLAMA_CHAT_MODEL=llama3.2:3b
-      - OLLAMA_EMBED_MODEL=nomic-embed-text
+      - PYTHONUNBUFFERED=1
     volumes:
       - ./backend/uploads:/app/uploads
       - ./backend/vector_stores:/app/vector_stores
@@ -45,3 +43,4 @@ services:
 
 volumes:
   ollama_data:
+
