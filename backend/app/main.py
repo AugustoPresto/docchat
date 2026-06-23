@@ -33,7 +33,7 @@ async def health():
     return {
         "status": "ok",
         "chat_model": settings.ollama_chat_model,
-        "embed_model": settings.ollama_embed_model,
+        "embed_model": settings.embed_model,
         "ollama_url": settings.ollama_base_url,
     }
 

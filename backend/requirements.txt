@@ -9,6 +9,10 @@ langchain-community>=0.4.0
 langchain-ollama>=1.0.0
 langchain-text-splitters>=0.3.0
 langchain-core>=0.3.0
+langchain-huggingface>=0.1.0
+
+# Local embeddings — fast CPU inference, no Ollama required for embedding
+sentence-transformers>=3.0.0
 
 # PDF parsing
 pypdf>=4.2.0

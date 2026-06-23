@@ -2,9 +2,9 @@
 
 > **Chat with your PDF documents using local AI — 100% private, no API keys, no cloud.**
 
-DocChat is a full-stack RAG (Retrieval-Augmented Generation) application that lets you upload any PDF and ask questions about it in natural language. Everything runs locally using [Ollama](https://ollama.com/), so your documents never leave your machine.
+DocChat is a full-stack RAG (Retrieval-Augmented Generation) application that lets you upload any PDF and ask questions about it in natural language. Everything runs locally, so your documents never leave your machine.
 
-![DocChat Demo](docs/demo.gif)
+![CI](https://github.com/AugustoPresto/docchat/actions/workflows/ci.yml/badge.svg)
 
 ---
 
@@ -15,7 +15,7 @@ DocChat is a full-stack RAG (Retrieval-Augmented Generation) application that le
 - 🧠 **RAG pipeline** — finds relevant chunks before answering
 - 💬 **Conversational memory** — multi-turn chat with context
 - 📚 **Source citations** — see exactly which page the answer came from
-- 🔒 **100% local** — powered by Ollama, no data sent to the cloud
+- 🔒 **100% local** — no data sent to the cloud
 - ⚡ **Fast React UI** — dark mode, drag & drop, auto-scroll
 - 🐳 **Docker Compose** for one-command setup
 
@@ -24,32 +24,37 @@ DocChat is a full-stack RAG (Retrieval-Augmented Generation) application that le
 ## 🏗️ Architecture
 
 ```
-┌─────────────────┐     HTTP      ┌─────────────────────────────────┐
-│   React + Vite  │ ──────────── │        FastAPI Backend           │
-│   (Port 5173)   │              │         (Port 8000)              │
-└─────────────────┘              │                                  │
-                                 │  ┌──────────┐  ┌─────────────┐  │
-                                 │  │  PyPDF   │  │   FAISS     │  │
-                                 │  │ (loader) │  │ (vectors)   │  │
-                                 │  └──────────┘  └─────────────┘  │
-                                 │         │             │          │
-                                 │         └──── RAG ────┘          │
-                                 │                │                  │
-                                 └────────────────┼──────────────────┘
-                                                  │ Ollama API
-                                    ┌─────────────▼──────────────┐
-                                    │         Ollama              │
-                                    │  llama3.2:3b  (chat)       │
-                                    │  nomic-embed-text (embed)  │
-                                    └────────────────────────────┘
+┌─────────────────┐     HTTP      ┌──────────────────────────────────────┐
+│   React + Vite  │ ──────────── │           FastAPI Backend             │
+│   (Port 5173)   │              │            (Port 8000)                │
+└─────────────────┘              │                                       │
+                                 │  ┌──────────┐  ┌──────────────────┐  │
+                                 │  │  PyPDF   │  │      FAISS       │  │
+                                 │  │ (loader) │  │  (vector store)  │  │
+                                 │  └──────────┘  └──────────────────┘  │
+                                 │       │                │               │
+                                 │       └── sentence-transformers ───┘  │
+                                 │           (embeddings, local/fast)    │
+                                 │                       │               │
+                                 └───────────────────────┼───────────────┘
+                                                         │ Ollama API
+                                          ┌──────────────▼─────────────┐
+                                          │          Ollama             │
+                                          │   llama3.2:3b  (chat only) │
+                                          └────────────────────────────┘
 ```
 
 **How it works:**
-1. PDF is uploaded and split into overlapping text chunks (LangChain `RecursiveCharacterTextSplitter`)
-2. Each chunk is embedded via Ollama (`nomic-embed-text`) and stored in a FAISS index on disk
-3. On each question, the top-K most similar chunks are retrieved via cosine similarity
-4. The retrieved context + conversation history is sent to Ollama (`llama3.2:3b`) for a grounded answer
-5. The answer and source page references are returned to the React UI
+1. PDF is uploaded and split into overlapping text chunks (`RecursiveCharacterTextSplitter`)
+2. Each chunk is embedded via **sentence-transformers** (`all-MiniLM-L6-v2`) — fast local CPU inference
+3. Embeddings are stored in a **FAISS** index on disk (persisted per document)
+4. On each question, top-K most similar chunks are retrieved via cosine similarity
+5. The context + conversation history is sent to **Ollama** (`llama3.2:3b`) for a grounded answer
+6. The answer and source page references are returned to the React UI
+
+> **Why sentence-transformers for embeddings?**  
+> Running `nomic-embed-text` via Ollama on CPU takes ~2 minutes per chunk.  
+> `all-MiniLM-L6-v2` runs in pure Python and embeds 10 chunks in **~30ms** — 1000x faster.
 
 ---
 
@@ -58,14 +63,14 @@ DocChat is a full-stack RAG (Retrieval-Augmented Generation) application that le
 ### Prerequisites
 
 - [Ollama](https://ollama.com/) installed and running
-- Python 3.11+
+- Python 3.10+
 - Node.js 18+
 
-### 1. Pull Ollama models
+### 1. Pull the Ollama chat model
 
 ```bash
+# Only needed for answering questions (not for embedding)
 ollama pull llama3.2:3b
-ollama pull nomic-embed-text
 ```
 
 ### 2. Start the backend
@@ -78,6 +83,8 @@ cp .env.example .env
 uvicorn app.main:app --reload --port 8000
 ```
 
+> **First run:** the embedding model (`all-MiniLM-L6-v2`, ~91MB) is downloaded automatically from HuggingFace.
+
 ### 3. Start the frontend
 
 ```bash
@@ -86,15 +93,15 @@ npm install
 npm run dev
 ```
 
-Open **http://localhost:5173** and upload a PDF. 🎉
+Open **http://127.0.0.1:5173** and upload a PDF. 🎉
 
 ---
 
 ## 🐳 Docker Compose (recommended)
 
 ```bash
-# Pull Ollama models first (one-time)
-ollama pull llama3.2:3b && ollama pull nomic-embed-text
+# Pull Ollama model first (one-time)
+ollama pull llama3.2:3b
 
 # Start everything
 docker compose up -d
@@ -120,18 +127,18 @@ docchat/
 │   │       ├── document_service.py  # PDF → chunks → FAISS
 │   │       └── chat_service.py      # RAG chain + Ollama
 │   ├── tests/
-│   │   └── test_api.py        # Pytest suite
+│   │   └── test_api.py        # Pytest suite (8 tests)
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/
 │   ├── src/
 │   │   ├── App.jsx            # Root + state management
 │   │   ├── components/
-│   │   │   ├── Sidebar.jsx    # Document management + status
+│   │   │   ├── Sidebar.jsx         # Document management + status
 │   │   │   ├── DocumentUpload.jsx  # Drag & drop uploader
-│   │   │   ├── DocumentList.jsx   # Document selector
-│   │   │   ├── ChatInterface.jsx  # Message history + input
-│   │   │   └── Message.jsx        # Message + sources
+│   │   │   ├── DocumentList.jsx    # Document selector
+│   │   │   ├── ChatInterface.jsx   # Message history + input
+│   │   │   └── Message.jsx         # Message + source citations
 │   │   └── services/
 │   │       └── api.js         # Axios API layer
 │   └── Dockerfile
@@ -149,7 +156,7 @@ All settings are in `backend/.env`:
 |----------|---------|-------------|
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
 | `OLLAMA_CHAT_MODEL` | `llama3.2:3b` | Model for generating answers |
-| `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Model for creating embeddings |
+| `EMBED_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Local embedding model |
 | `CHUNK_SIZE` | `1000` | Characters per text chunk |
 | `CHUNK_OVERLAP` | `200` | Overlap between chunks |
 | `RETRIEVER_K` | `4` | Chunks retrieved per query |
@@ -170,9 +177,10 @@ pytest tests/ -v
 | Layer | Technology |
 |-------|-----------|
 | **Frontend** | React 18, Vite, Axios, react-dropzone, react-markdown |
-| **Backend** | Python 3.11, FastAPI, Uvicorn |
-| **AI / RAG** | LangChain, LangChain-Ollama, FAISS-CPU |
-| **LLM** | Ollama (llama3.2:3b + nomic-embed-text) |
+| **Backend** | Python 3.10+, FastAPI, Uvicorn |
+| **Embeddings** | sentence-transformers (`all-MiniLM-L6-v2`) — local, fast CPU |
+| **AI / RAG** | LangChain (LCEL), FAISS-CPU |
+| **LLM** | Ollama (`llama3.2:3b`) |
 | **PDF parsing** | PyPDF |
 | **Containers** | Docker, Docker Compose, Nginx |
 | **CI** | GitHub Actions |
@@ -181,11 +189,11 @@ pytest tests/ -v
 
 ## 📝 API Reference
 
-Interactive docs available at `http://localhost:8000/docs` (Swagger UI).
+Interactive docs: **http://localhost:8000/docs** (Swagger UI)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/health` | Ollama connection status |
+| `GET` | `/health` | Ollama + model status |
 | `POST` | `/api/v1/documents/upload` | Upload and index a PDF |
 | `GET` | `/api/v1/documents/` | List all documents |
 | `DELETE` | `/api/v1/documents/{id}` | Delete a document |

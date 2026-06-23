@@ -7,6 +7,7 @@ from langchain_core.runnables import RunnablePassthrough
 from app.config import settings
 from app.schemas import ChatResponse, SourceChunk
 from app.services.document_service import load_vector_store
+# Note: embeddings are handled by document_service via HuggingFaceEmbeddings singleton
 
 
 # ── Prompts ───────────────────────────────────────────────────────────────────

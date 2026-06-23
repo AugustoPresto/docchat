@@ -1,4 +1,3 @@
-import os
 import json
 import shutil
 import uuid
@@ -7,7 +6,7 @@ from pathlib import Path
 
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_ollama import OllamaEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 
 from app.config import settings
@@ -36,19 +35,27 @@ def _save_metadata(data: dict) -> None:
         json.dump(data, f, indent=2, default=str)
 
 
-# ── Embedding model (shared) ──────────────────────────────────────────────────
-def _get_embeddings() -> OllamaEmbeddings:
-    return OllamaEmbeddings(
-        base_url=settings.ollama_base_url,
-        model=settings.ollama_embed_model,
-    )
+# ── Embedding model ───────────────────────────────────────────────────────────
+# Using sentence-transformers locally (fast CPU inference, no Ollama needed for embed)
+# all-MiniLM-L6-v2: 23MB, ~384-dim, very fast on CPU, great quality for RAG
+_embeddings_instance = None
+
+
+def _get_embeddings() -> HuggingFaceEmbeddings:
+    global _embeddings_instance
+    if _embeddings_instance is None:
+        _embeddings_instance = HuggingFaceEmbeddings(
+            model_name=settings.embed_model,
+            model_kwargs={"device": "cpu"},
+            encode_kwargs={"normalize_embeddings": True},
+        )
+    return _embeddings_instance
 
 
 # ── Core service functions ────────────────────────────────────────────────────
 async def process_document(file_path: str, original_filename: str, file_size: int) -> DocumentResponse:
     """
-    Load a PDF, split it into chunks, embed with Ollama and save to FAISS.
-    Returns document metadata.
+    Load a PDF, split it into chunks, embed with sentence-transformers and save to FAISS.
     """
     doc_id = str(uuid.uuid4())
 
@@ -65,7 +72,7 @@ async def process_document(file_path: str, original_filename: str, file_size: in
     chunks = splitter.split_documents(pages)
     chunk_count = len(chunks)
 
-    # 3. Create FAISS vector store with Ollama embeddings
+    # 3. Create FAISS vector store with local embeddings
     embeddings = _get_embeddings()
     vector_store = FAISS.from_documents(chunks, embeddings)
 
@@ -92,7 +99,6 @@ async def process_document(file_path: str, original_filename: str, file_size: in
 
 
 def list_documents() -> list[DocumentResponse]:
-    """Return all uploaded documents."""
     metadata = _load_metadata()
     return [DocumentResponse(**doc) for doc in metadata.values()]
 
@@ -109,12 +115,10 @@ def delete_document(doc_id: str) -> bool:
     if not doc:
         return False
 
-    # Remove vector store
     store_path = Path(doc["store_path"])
     if store_path.exists():
         shutil.rmtree(store_path)
 
-    # Remove uploaded file
     file_path = Path(doc["file_path"])
     if file_path.exists():
         file_path.unlink()
@@ -125,7 +129,6 @@ def delete_document(doc_id: str) -> bool:
 
 
 def load_vector_store(doc_id: str) -> FAISS | None:
-    """Load an existing FAISS index from disk."""
     metadata = _load_metadata()
     doc = metadata.get(doc_id)
     if not doc:
