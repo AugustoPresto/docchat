@@ -18,6 +18,7 @@ DocChat is a full-stack RAG (Retrieval-Augmented Generation) application that le
 - 🔒 **100% local** — no data sent to the cloud
 - ⚡ **Fast React UI** — dark mode, drag & drop, auto-scroll
 - 🐳 **Docker Compose** for one-command setup
+- 🖥️ **Auto GPU detection** — uses CUDA/MPS when available, falls back to CPU
 
 ---
 
@@ -46,7 +47,7 @@ DocChat is a full-stack RAG (Retrieval-Augmented Generation) application that le
 
 **How it works:**
 1. PDF is uploaded and split into overlapping text chunks (`RecursiveCharacterTextSplitter`)
-2. Each chunk is embedded via **sentence-transformers** (`all-MiniLM-L6-v2`) — fast local CPU inference
+2. Each chunk is embedded via **sentence-transformers** (model chosen per device) — fast local CPU/GPU inference
 3. Embeddings are stored in a **FAISS** index on disk (persisted per document)
 4. On each question, top-K most similar chunks are retrieved via cosine similarity
 5. The context + conversation history is sent to **Ollama** (`llama3.2:3b`) for a grounded answer
@@ -55,6 +56,49 @@ DocChat is a full-stack RAG (Retrieval-Augmented Generation) application that le
 > **Why sentence-transformers for embeddings?**  
 > Running `nomic-embed-text` via Ollama on CPU takes ~2 minutes per chunk.  
 > `all-MiniLM-L6-v2` runs in pure Python and embeds 10 chunks in **~30ms** — 1000x faster.
+
+---
+
+## 🖥️ GPU Auto-Detection
+
+DocChat automatically detects the best available compute device at startup and selects the appropriate embedding model:
+
+| Device | Detected when | Embedding model | Quality |
+|--------|--------------|-----------------|--------|
+| **CUDA** | NVIDIA GPU with CUDA drivers | `all-mpnet-base-v2` (420MB) | ⭐⭐⭐ Best |
+| **MPS** | Apple Silicon (M1/M2/M3) | `all-mpnet-base-v2` (420MB) | ⭐⭐⭐ Best |
+| **CPU** | No GPU found (default) | `all-MiniLM-L6-v2` (91MB) | ⭐⭐ Good |
+
+**Startup log** — you'll see one of these messages when the backend starts:
+
+```bash
+# NVIDIA GPU found:
+🟢 GPU detected: RTX 4090 (24.0GB VRAM) — using CUDA
+
+# Apple Silicon:
+🟢 Apple Silicon detected — using MPS
+
+# No GPU:
+🟡 No GPU detected — using CPU
+```
+
+The **sidebar** shows a live badge: **`⚡ GPU · [name] · [VRAM]`** (green) or **`🖥️ CPU only`** (amber).
+
+### Override via environment variables
+
+You can manually set either model in `backend/.env`:
+
+```bash
+# Force a specific model regardless of detected device:
+EMBED_MODEL_CPU=sentence-transformers/all-MiniLM-L6-v2
+EMBED_MODEL_GPU=sentence-transformers/all-mpnet-base-v2
+```
+
+### NVIDIA GPU requirements
+
+- CUDA-capable GPU (any generation from GTX 900 series onwards)
+- CUDA drivers installed (`nvidia-smi` should work in your terminal)
+- No special Docker flags needed for embedding — only needed for Ollama GPU inference
 
 ---
 

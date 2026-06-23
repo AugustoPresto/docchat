@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     def embed_model(self) -> str:
         """Return the appropriate embedding model for the detected device."""
         from app.device import DEVICE
-        return self.embed_model_gpu if DEVICE == "cuda" else self.embed_model_cpu
+        return self.embed_model_gpu if DEVICE in ("cuda", "mps") else self.embed_model_cpu
 
 
 settings = Settings()
