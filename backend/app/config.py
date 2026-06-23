@@ -3,13 +3,16 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # Ollama settings (used only for chat/generation)
+    # Ollama settings — used only for chat/generation
     ollama_base_url: str = "http://localhost:11434"
     ollama_chat_model: str = "llama3.2:3b"
 
-    # Embedding model — uses sentence-transformers locally (fast CPU, no Ollama needed)
-    # all-MiniLM-L6-v2: 23MB, 384-dim, excellent quality/speed tradeoff for RAG
-    embed_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    # Embedding model (sentence-transformers)
+    # These are the defaults; device is auto-detected at startup.
+    # CPU model: fast, lightweight (~91MB)
+    embed_model_cpu: str = "sentence-transformers/all-MiniLM-L6-v2"
+    # GPU model: higher quality, larger (~420MB) — worth it if you have VRAM
+    embed_model_gpu: str = "sentence-transformers/all-mpnet-base-v2"
 
     # Storage paths (relative to backend dir)
     upload_dir: str = "uploads"
@@ -18,7 +21,7 @@ class Settings(BaseSettings):
     # RAG settings
     chunk_size: int = 1000
     chunk_overlap: int = 200
-    retriever_k: int = 4  # how many chunks to retrieve per query
+    retriever_k: int = 4
 
     # CORS
     allowed_origins: list[str] = [
@@ -29,6 +32,12 @@ class Settings(BaseSettings):
     ]
 
     model_config = ConfigDict(env_file=".env")
+
+    @property
+    def embed_model(self) -> str:
+        """Return the appropriate embedding model for the detected device."""
+        from app.device import DEVICE
+        return self.embed_model_gpu if DEVICE == "cuda" else self.embed_model_cpu
 
 
 settings = Settings()

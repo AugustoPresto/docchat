@@ -3,6 +3,30 @@ import DocumentUpload from './DocumentUpload';
 import DocumentList from './DocumentList';
 import { checkHealth } from '../services/api';
 
+function DeviceBadge({ device, gpuName, vramGb }) {
+  const isGpu = device === 'cuda' || device === 'mps';
+  const label = device === 'cuda'
+    ? `GPU · ${gpuName || 'NVIDIA'}${vramGb ? ` · ${vramGb}GB` : ''}`
+    : device === 'mps'
+    ? 'Apple Silicon'
+    : 'CPU only';
+
+  return (
+    <span style={{
+      fontSize: '10px',
+      fontWeight: 600,
+      padding: '2px 7px',
+      borderRadius: '999px',
+      background: isGpu ? 'rgba(34,197,94,0.12)' : 'rgba(245,158,11,0.12)',
+      border: `1px solid ${isGpu ? 'rgba(34,197,94,0.4)' : 'rgba(245,158,11,0.4)'}`,
+      color: isGpu ? '#22c55e' : '#f59e0b',
+      letterSpacing: '0.3px',
+    }}>
+      {isGpu ? '⚡' : '🖥️'} {label}
+    </span>
+  );
+}
+
 export default function Sidebar({ documents, activeDocId, onUploaded, onSelect, onDeleted, onToast }) {
   const [health, setHealth] = useState(null);
   const [healthStatus, setHealthStatus] = useState('loading');
@@ -41,16 +65,20 @@ export default function Sidebar({ documents, activeDocId, onUploaded, onSelect, 
         />
       </div>
 
-      {/* Ollama status bar */}
+      {/* Status bar */}
       <div className="status-bar">
         <div className={`status-dot ${healthStatus}`} />
         <span className="status-text">
-          {healthStatus === 'loading' && 'Connecting to Ollama…'}
+          {healthStatus === 'loading' && 'Connecting…'}
           {healthStatus === 'ok'      && 'Ollama connected'}
-          {healthStatus === 'error'   && 'Ollama offline — start it first'}
+          {healthStatus === 'error'   && 'Ollama offline'}
         </span>
         {health && (
-          <span className="status-model">{health.chat_model}</span>
+          <DeviceBadge
+            device={health.device}
+            gpuName={health.gpu_name}
+            vramGb={health.vram_gb}
+          />
         )}
       </div>
     </aside>

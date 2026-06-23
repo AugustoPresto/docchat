@@ -10,6 +10,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 
 from app.config import settings
+from app.device import DEVICE
 from app.schemas import DocumentResponse
 
 
@@ -35,9 +36,10 @@ def _save_metadata(data: dict) -> None:
         json.dump(data, f, indent=2, default=str)
 
 
-# ── Embedding model ───────────────────────────────────────────────────────────
-# Using sentence-transformers locally (fast CPU inference, no Ollama needed for embed)
-# all-MiniLM-L6-v2: 23MB, ~384-dim, very fast on CPU, great quality for RAG
+# ── Embedding model (singleton) ──────────────────────────────────────────────
+# Device auto-detected at startup: CUDA > MPS > CPU
+# GPU → all-mpnet-base-v2 (higher quality, 420MB)
+# CPU → all-MiniLM-L6-v2 (fast, lightweight, 91MB)
 _embeddings_instance = None
 
 
@@ -46,7 +48,7 @@ def _get_embeddings() -> HuggingFaceEmbeddings:
     if _embeddings_instance is None:
         _embeddings_instance = HuggingFaceEmbeddings(
             model_name=settings.embed_model,
-            model_kwargs={"device": "cpu"},
+            model_kwargs={"device": DEVICE},
             encode_kwargs={"normalize_embeddings": True},
         )
     return _embeddings_instance

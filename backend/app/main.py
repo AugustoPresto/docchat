@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
+from app.device import get_device_info
 from app.routers import documents, chat
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -35,6 +36,7 @@ async def health():
         "chat_model": settings.ollama_chat_model,
         "embed_model": settings.embed_model,
         "ollama_url": settings.ollama_base_url,
+        **get_device_info(),  # adds: device, gpu_name, vram_gb
     }
 
 
