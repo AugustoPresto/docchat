@@ -1,4 +1,3 @@
-from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.output_parsers import StrOutputParser
@@ -8,6 +7,36 @@ from app.config import settings
 from app.schemas import ChatResponse, SourceChunk
 from app.services.document_service import load_vector_store
 # Note: embeddings are handled by document_service via HuggingFaceEmbeddings singleton
+
+
+def _get_llm():
+    """
+    Returns the appropriate LLM instance.
+    Prioritizes Groq API Key -> OpenAI API Key -> Fallback to Local Ollama.
+    """
+    if settings.groq_api_key:
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            base_url="https://api.groq.com/openai/v1",
+            api_key=settings.groq_api_key,
+            model="llama-3.2-3b-preview",
+            temperature=0.1,
+        )
+    elif settings.openai_api_key:
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            api_key=settings.openai_api_key,
+            model="gpt-4o-mini",
+            temperature=0.1,
+        )
+    else:
+        from langchain_ollama import ChatOllama
+        return ChatOllama(
+            base_url=settings.ollama_base_url,
+            model=settings.ollama_chat_model,
+            temperature=0.1,
+        )
+
 
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
@@ -69,12 +98,9 @@ async def chat_with_document(
     )
     source_docs = retriever.invoke(message)
 
-    # 3. Build Ollama LLM
-    llm = ChatOllama(
-        base_url=settings.ollama_base_url,
-        model=settings.ollama_chat_model,
-        temperature=0.1,
-    )
+    # 3. Get LLM (Ollama or Cloud Fallback)
+    llm = _get_llm()
+
 
     # 4. Build LCEL chain
     chain = (

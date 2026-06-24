@@ -31,13 +31,25 @@ app.include_router(chat.router, prefix="/api/v1")
 # ── Health check ──────────────────────────────────────────────────────────────
 @app.get("/health", tags=["health"])
 async def health():
+    if settings.groq_api_key:
+        provider = "groq"
+        model = "llama-3.2-3b-preview"
+    elif settings.openai_api_key:
+        provider = "openai"
+        model = "gpt-4o-mini"
+    else:
+        provider = "ollama"
+        model = settings.ollama_chat_model
+
     return {
         "status": "ok",
-        "chat_model": settings.ollama_chat_model,
+        "provider": provider,
+        "chat_model": model,
         "embed_model": settings.embed_model,
-        "ollama_url": settings.ollama_base_url,
+        "ollama_url": settings.ollama_base_url if provider == "ollama" else None,
         **get_device_info(),  # adds: device, gpu_name, vram_gb
     }
+
 
 
 @app.get("/", tags=["root"])

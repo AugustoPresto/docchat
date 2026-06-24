@@ -37,6 +37,21 @@ export default function Sidebar({ documents, activeDocId, onUploaded, onSelect, 
       .catch(() => setHealthStatus('error'));
   }, []);
 
+  const isCloud = health?.provider === 'groq' || health?.provider === 'openai';
+  const logoTagline = isCloud
+    ? `Powered by ${health.provider.toUpperCase()} (Cloud LLM)`
+    : 'Powered by Ollama · 100% local';
+
+  const statusLabel = healthStatus === 'loading'
+    ? 'Connecting…'
+    : healthStatus === 'error'
+    ? 'AI offline'
+    : health?.provider === 'groq'
+    ? 'Groq connected'
+    : health?.provider === 'openai'
+    ? 'OpenAI connected'
+    : 'Ollama connected';
+
   return (
     <aside className="sidebar">
       {/* Logo */}
@@ -45,7 +60,7 @@ export default function Sidebar({ documents, activeDocId, onUploaded, onSelect, 
           <div className="logo-icon">💬</div>
           <span className="logo-text">DocChat</span>
         </div>
-        <div className="logo-tagline">Powered by Ollama · 100% local</div>
+        <div className="logo-tagline">{logoTagline}</div>
       </div>
 
       {/* Upload + Documents */}
@@ -69,9 +84,7 @@ export default function Sidebar({ documents, activeDocId, onUploaded, onSelect, 
       <div className="status-bar">
         <div className={`status-dot ${healthStatus}`} />
         <span className="status-text">
-          {healthStatus === 'loading' && 'Connecting…'}
-          {healthStatus === 'ok'      && 'Ollama connected'}
-          {healthStatus === 'error'   && 'Ollama offline'}
+          {statusLabel}
         </span>
         {health && (
           <DeviceBadge
@@ -83,4 +96,5 @@ export default function Sidebar({ documents, activeDocId, onUploaded, onSelect, 
       </div>
     </aside>
   );
+
 }

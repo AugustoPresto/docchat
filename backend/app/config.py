@@ -7,6 +7,10 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_chat_model: str = "llama3.2:3b"
 
+    # Cloud LLM settings (fallback when deployed or if keys are provided)
+    groq_api_key: str | None = None
+    openai_api_key: str | None = None
+
     # Embedding model (sentence-transformers)
     # These are the defaults; device is auto-detected at startup.
     # CPU model: fast, lightweight (~91MB)
@@ -17,6 +21,7 @@ class Settings(BaseSettings):
     # Storage paths (relative to backend dir)
     upload_dir: str = "uploads"
     vector_store_dir: str = "vector_stores"
+
 
     # RAG settings
     chunk_size: int = 1000
