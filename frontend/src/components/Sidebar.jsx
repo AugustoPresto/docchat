@@ -11,17 +11,25 @@ function DeviceBadge({ device, gpuName, vramGb }) {
     ? 'Apple Silicon'
     : 'CPU only';
 
+  const tooltipText = isGpu
+    ? "Embeddings are accelerated using hardware GPU."
+    : "For cost-efficiency in cloud hosting, this application processes document embeddings using CPU cores. Processing very large PDFs may take longer.";
+
   return (
-    <span style={{
-      fontSize: '10px',
-      fontWeight: 600,
-      padding: '2px 7px',
-      borderRadius: '999px',
-      background: isGpu ? 'rgba(34,197,94,0.12)' : 'rgba(245,158,11,0.12)',
-      border: `1px solid ${isGpu ? 'rgba(34,197,94,0.4)' : 'rgba(245,158,11,0.4)'}`,
-      color: isGpu ? '#22c55e' : '#f59e0b',
-      letterSpacing: '0.3px',
-    }}>
+    <span
+      title={tooltipText}
+      style={{
+        fontSize: '10px',
+        fontWeight: 600,
+        padding: '2px 7px',
+        borderRadius: '999px',
+        background: isGpu ? 'rgba(34,197,94,0.12)' : 'rgba(245,158,11,0.12)',
+        border: `1px solid ${isGpu ? 'rgba(34,197,94,0.4)' : 'rgba(245,158,11,0.4)'}`,
+        color: isGpu ? '#22c55e' : '#f59e0b',
+        letterSpacing: '0.3px',
+        cursor: isGpu ? 'default' : 'help',
+      }}
+    >
       {isGpu ? '⚡' : '🖥️'} {label}
     </span>
   );
