@@ -10,7 +10,7 @@ primary_region = 'gru'
   dockerfile = 'Dockerfile'
 
 [env]
-  BACKEND_URL = 'http://docchat-backend.internal:8000/api/'
+  BACKEND_URL = 'https://docchat-backend.fly.dev/api/'
   PUBLIC_BACKEND_URL = 'https://docchat-backend.fly.dev'
 
 [http_service]
