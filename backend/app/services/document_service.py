@@ -1,3 +1,4 @@
+import asyncio
 import json
 import shutil
 import uuid
@@ -59,47 +60,58 @@ def _get_embeddings() -> HuggingFaceEmbeddings:
 async def process_document(file_path: str, original_filename: str, file_size: int) -> DocumentResponse:
     """
     Load a PDF, split it into chunks, embed with sentence-transformers and save to FAISS.
+    All CPU-intensive work runs in a thread pool executor so the async event loop
+    stays free (prevents Fly.io's 60-second gateway timeout / 502 errors).
     """
     doc_id = str(uuid.uuid4())
-
-    # 1. Load PDF pages
-    loader = PyPDFLoader(file_path)
-    pages = loader.load()
-    page_count = len(pages)
-
-    # 2. Split into chunks
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=settings.chunk_size,
-        chunk_overlap=settings.chunk_overlap,
-    )
-    chunks = splitter.split_documents(pages)
-    chunk_count = len(chunks)
-
-    # 3. Create FAISS vector store with local embeddings in batches to prevent memory spikes (OOM)
-    embeddings = _get_embeddings()
-    if not chunks:
-        raise ValueError("No text content could be extracted from this PDF.")
-
-    # Initialize the vector store with the first chunk
-    vector_store = FAISS.from_documents(chunks[:1], embeddings)
-
-    # Add the remaining chunks in batches
-    batch_size = 32
-    for i in range(1, len(chunks), batch_size):
-        batch = chunks[i:i + batch_size]
-        vector_store.add_documents(batch)
-
-    # 4. Persist the vector store to disk
     store_path = str(VECTOR_DIR / doc_id)
-    vector_store.save_local(store_path)
 
-    # 5. Save document metadata
+    def _sync_process() -> dict:
+        """Runs entirely in a background thread — no async allowed here."""
+        # 1. Load PDF pages
+        loader = PyPDFLoader(file_path)
+        pages = loader.load()
+        page_count = len(pages)
+
+        # 2. Split into chunks
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=settings.chunk_size,
+            chunk_overlap=settings.chunk_overlap,
+        )
+        chunks = splitter.split_documents(pages)
+        chunk_count = len(chunks)
+
+        if not chunks:
+            raise ValueError("No text content could be extracted from this PDF.")
+
+        # 3. Create FAISS vector store in batches to prevent OOM spikes
+        embeddings = _get_embeddings()
+        vector_store = FAISS.from_documents(chunks[:1], embeddings)
+
+        batch_size = 32
+        for i in range(1, len(chunks), batch_size):
+            batch = chunks[i:i + batch_size]
+            vector_store.add_documents(batch)
+
+        # 4. Persist to disk
+        vector_store.save_local(store_path)
+
+        return {
+            "page_count": page_count,
+            "chunk_count": chunk_count,
+        }
+
+    # Offload to thread pool — keeps uvicorn event loop unblocked
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, _sync_process)
+
+    # 5. Save document metadata (fast I/O, fine to do in async context)
     metadata = _load_metadata()
     doc_record = {
         "id": doc_id,
         "filename": original_filename,
-        "page_count": page_count,
-        "chunk_count": chunk_count,
+        "page_count": result["page_count"],
+        "chunk_count": result["chunk_count"],
         "uploaded_at": datetime.now(timezone.utc).isoformat(),
         "size_bytes": file_size,
         "file_path": file_path,

@@ -12,4 +12,13 @@ FROM nginx:alpine
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
-CMD ["sh", "-c", "if [ -n \"$BACKEND_URL\" ]; then sed -i \"s|http://backend:8000/api/|$BACKEND_URL|g\" /etc/nginx/conf.d/default.conf; fi && if [ -n \"$PUBLIC_BACKEND_URL\" ]; then sed -i \"s|http://backend:8000/health|$PUBLIC_BACKEND_URL/health|g\" /etc/nginx/conf.d/default.conf; fi && nginx -g 'daemon off;'"]
+
+# At runtime, replace placeholders with real upstream URLs from env vars.
+# BACKEND_URL  → internal Fly.io URL for API calls (e.g. http://docchat-backend.internal:8000/api/)
+# PUBLIC_BACKEND_URL → public HTTPS URL for health check (e.g. https://docchat-backend.fly.dev)
+CMD ["sh", "-c", \
+  "BACKEND=${BACKEND_URL:-http://backend:8000/api/} && \
+   HEALTH=${PUBLIC_BACKEND_URL:-http://backend:8000}/health && \
+   sed -i \"s|BACKEND_UPSTREAM_PLACEHOLDER|${BACKEND}|g\" /etc/nginx/conf.d/default.conf && \
+   sed -i \"s|HEALTH_UPSTREAM_PLACEHOLDER|${HEALTH}|g\" /etc/nginx/conf.d/default.conf && \
+   nginx -g 'daemon off;'"]
