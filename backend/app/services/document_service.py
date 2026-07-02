@@ -75,9 +75,19 @@ async def process_document(file_path: str, original_filename: str, file_size: in
     chunks = splitter.split_documents(pages)
     chunk_count = len(chunks)
 
-    # 3. Create FAISS vector store with local embeddings
+    # 3. Create FAISS vector store with local embeddings in batches to prevent memory spikes (OOM)
     embeddings = _get_embeddings()
-    vector_store = FAISS.from_documents(chunks, embeddings)
+    if not chunks:
+        raise ValueError("No text content could be extracted from this PDF.")
+
+    # Initialize the vector store with the first chunk
+    vector_store = FAISS.from_documents(chunks[:1], embeddings)
+
+    # Add the remaining chunks in batches
+    batch_size = 32
+    for i in range(1, len(chunks), batch_size):
+        batch = chunks[i:i + batch_size]
+        vector_store.add_documents(batch)
 
     # 4. Persist the vector store to disk
     store_path = str(VECTOR_DIR / doc_id)
