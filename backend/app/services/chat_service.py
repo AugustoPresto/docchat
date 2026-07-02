@@ -19,14 +19,14 @@ def _get_llm():
         return ChatOpenAI(
             base_url="https://api.groq.com/openai/v1",
             api_key=settings.groq_api_key,
-            model="llama-3.2-3b-preview",
+            model=settings.groq_chat_model,
             temperature=0.1,
         )
     elif settings.openai_api_key:
         from langchain_openai import ChatOpenAI
         return ChatOpenAI(
             api_key=settings.openai_api_key,
-            model="gpt-4o-mini",
+            model=settings.openai_chat_model,
             temperature=0.1,
         )
     else:

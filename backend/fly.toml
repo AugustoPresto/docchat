@@ -1,0 +1,29 @@
+# fly.toml file for docchat-backend
+# See https://fly.io/docs/reference/configuration/ for information
+
+app = "docchat-backend"
+primary_region = "gru"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"
+
+[[mounts]]
+  source = "docchat_data"
+  destination = "/data"
+
+[env]
+  UPLOAD_DIR = "/data/uploads"
+  VECTOR_STORE_DIR = "/data/vector_stores"
+  PORT = "8000"

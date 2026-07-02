@@ -9,7 +9,9 @@ class Settings(BaseSettings):
 
     # Cloud LLM settings (fallback when deployed or if keys are provided)
     groq_api_key: str | None = None
+    groq_chat_model: str = "llama-3.2-3b-preview"
     openai_api_key: str | None = None
+    openai_chat_model: str = "gpt-4o-mini"
 
     # Embedding model (sentence-transformers)
     # These are the defaults; device is auto-detected at startup.

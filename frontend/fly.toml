@@ -1,0 +1,23 @@
+# fly.toml file for docchat-frontend
+# See https://fly.io/docs/reference/configuration/ for information
+
+app = "docchat-frontend"
+primary_region = "gru"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 80
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+
+[env]
+  BACKEND_URL = "http://docchat-backend.internal:8000/api/"

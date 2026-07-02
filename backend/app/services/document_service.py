@@ -17,10 +17,11 @@ from app.schemas import DocumentResponse
 # ── Paths ─────────────────────────────────────────────────────────────────────
 UPLOAD_DIR = Path(settings.upload_dir)
 VECTOR_DIR = Path(settings.vector_store_dir)
-METADATA_FILE = Path("documents_metadata.json")
 
 UPLOAD_DIR.mkdir(exist_ok=True)
 VECTOR_DIR.mkdir(exist_ok=True)
+
+METADATA_FILE = VECTOR_DIR / "documents_metadata.json"
 
 
 # ── Metadata helpers ──────────────────────────────────────────────────────────
