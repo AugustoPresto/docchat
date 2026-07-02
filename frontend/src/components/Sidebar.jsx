@@ -27,16 +27,7 @@ function DeviceBadge({ device, gpuName, vramGb }) {
   );
 }
 
-export default function Sidebar({ documents, activeDocId, onUploaded, onSelect, onDeleted, onToast }) {
-  const [health, setHealth] = useState(null);
-  const [healthStatus, setHealthStatus] = useState('loading');
-
-  useEffect(() => {
-    checkHealth()
-      .then((data) => { setHealth(data); setHealthStatus('ok'); })
-      .catch(() => setHealthStatus('error'));
-  }, []);
-
+export default function Sidebar({ documents, activeDocId, onUploaded, onSelect, onDeleted, onToast, health, healthStatus }) {
   const isCloud = health?.provider === 'groq' || health?.provider === 'openai';
   const logoTagline = isCloud
     ? `Powered by ${health.provider.toUpperCase()} (Cloud LLM)`
@@ -66,7 +57,7 @@ export default function Sidebar({ documents, activeDocId, onUploaded, onSelect, 
       {/* Upload + Documents */}
       <div className="sidebar-section">
         <div className="section-label">Upload</div>
-        <DocumentUpload onUploaded={onUploaded} onToast={onToast} />
+        <DocumentUpload onUploaded={onUploaded} onToast={onToast} isCloud={isCloud} />
 
         <div className="section-label" style={{ marginTop: '12px' }}>
           Documents ({documents.length})

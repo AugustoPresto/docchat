@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
-import { listDocuments } from './services/api';
+import { listDocuments, checkHealth } from './services/api';
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
 function ToastContainer({ toasts }) {
@@ -17,7 +17,9 @@ function ToastContainer({ toasts }) {
 }
 
 // ── Empty state ───────────────────────────────────────────────────────────────
-function EmptyState() {
+function EmptyState({ health }) {
+  const isCloud = health?.provider === 'groq' || health?.provider === 'openai';
+
   return (
     <div className="empty-state">
       <div className="empty-state-orb">🧠</div>
@@ -25,10 +27,17 @@ function EmptyState() {
       <p>
         Upload any PDF and ask questions in plain language.
         The AI reads the document and answers using only its content —
-        <strong> everything runs locally on your machine.</strong>
+        {isCloud ? (
+          <strong> private, secure, and fast.</strong>
+        ) : (
+          <strong> everything runs locally on your machine.</strong>
+        )}
       </p>
       <div className="feature-chips">
-        {['🔒 100% private', '🦙 Powered by Ollama', '🔍 RAG-based search', '📄 Any PDF'].map((f) => (
+        {(isCloud
+          ? ['🔒 100% secure', `☁️ Powered by ${health?.provider?.toUpperCase()}`, '🔍 RAG-based search', '📄 Max 100MB PDF']
+          : ['🔒 100% private', '🦙 Powered by Ollama', '🔍 RAG-based search', '📄 Any PDF']
+        ).map((f) => (
           <div key={f} className="chip">{f}</div>
         ))}
       </div>
@@ -41,12 +50,18 @@ export default function App() {
   const [documents, setDocuments] = useState([]);
   const [activeDoc, setActiveDoc] = useState(null);
   const [toasts, setToasts] = useState([]);
+  const [health, setHealth] = useState(null);
+  const [healthStatus, setHealthStatus] = useState('loading');
 
-  // Load documents on mount
+  // Load documents and check health on mount
   useEffect(() => {
     listDocuments()
       .then((data) => setDocuments(data.documents))
       .catch(() => {/* silently ignore on startup */});
+
+    checkHealth()
+      .then((data) => { setHealth(data); setHealthStatus('ok'); })
+      .catch(() => setHealthStatus('error'));
   }, []);
 
   // Toast helper
@@ -76,6 +91,8 @@ export default function App() {
         onSelect={setActiveDoc}
         onDeleted={handleDeleted}
         onToast={addToast}
+        health={health}
+        healthStatus={healthStatus}
       />
 
       <main className="main-content">
@@ -86,7 +103,7 @@ export default function App() {
             onToast={addToast}
           />
         ) : (
-          <EmptyState />
+          <EmptyState health={health} />
         )}
       </main>
 

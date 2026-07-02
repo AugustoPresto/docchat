@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { uploadDocument } from '../services/api';
 
-export default function DocumentUpload({ onUploaded, onToast }) {
+export default function DocumentUpload({ onUploaded, onToast, isCloud }) {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [filename, setFilename] = useState('');
@@ -69,7 +69,9 @@ export default function DocumentUpload({ onUploaded, onToast }) {
         {isDragActive ? 'Drop the PDF here' : 'Upload a PDF'}
       </div>
       <div className="upload-subtitle">Drag & drop or click to browse</div>
-      <div className="upload-hint">PDF files only</div>
+      <div className="upload-hint">
+        PDF files only{isCloud ? ' (max 100MB)' : ''}
+      </div>
     </div>
   );
 }
