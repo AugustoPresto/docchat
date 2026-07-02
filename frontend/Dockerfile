@@ -12,4 +12,4 @@ FROM nginx:alpine
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
-CMD ["sh", "-c", "if [ -n \"$BACKEND_URL\" ]; then sed -i \"s|http://backend:8000/api/|$BACKEND_URL|g; s|http://backend:8000/health|${BACKEND_URL%api/}health|g\" /etc/nginx/conf.d/default.conf; fi && nginx -g 'daemon off;'"]
+CMD ["sh", "-c", "if [ -n \"$BACKEND_URL\" ]; then sed -i \"s|http://backend:8000/api/|$BACKEND_URL|g\" /etc/nginx/conf.d/default.conf; fi && if [ -n \"$PUBLIC_BACKEND_URL\" ]; then sed -i \"s|http://backend:8000/health|$PUBLIC_BACKEND_URL/health|g\" /etc/nginx/conf.d/default.conf; fi && nginx -g 'daemon off;'"]
