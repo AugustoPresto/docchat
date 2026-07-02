@@ -53,15 +53,42 @@ export default function App() {
   const [health, setHealth] = useState(null);
   const [healthStatus, setHealthStatus] = useState('loading');
 
-  // Load documents and check health on mount
+  // Poll health status and load documents once online
   useEffect(() => {
-    listDocuments()
-      .then((data) => setDocuments(data.documents))
-      .catch(() => {/* silently ignore on startup */});
+    let active = true;
+    let timeoutId;
 
-    checkHealth()
-      .then((data) => { setHealth(data); setHealthStatus('ok'); })
-      .catch(() => setHealthStatus('error'));
+    const performCheck = () => {
+      checkHealth()
+        .then((data) => {
+          if (!active) return;
+          setHealth(data);
+          setHealthStatus('ok');
+
+          // Backend is awake, load/refresh the documents list
+          listDocuments()
+            .then((docData) => {
+              if (active) setDocuments(docData.documents);
+            })
+            .catch(() => {/* ignore transient failures */});
+
+          // Poll less frequently (60s) once successfully connected
+          timeoutId = setTimeout(performCheck, 60000);
+        })
+        .catch(() => {
+          if (!active) return;
+          setHealthStatus('error');
+          // Retry every 15 seconds until the backend wakes up
+          timeoutId = setTimeout(performCheck, 15000);
+        });
+    };
+
+    performCheck();
+
+    return () => {
+      active = false;
+      clearTimeout(timeoutId);
+    };
   }, []);
 
   // Toast helper
