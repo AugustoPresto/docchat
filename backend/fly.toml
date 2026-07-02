@@ -13,6 +13,7 @@ primary_region = 'gru'
   PORT = '8000'
   UPLOAD_DIR = '/data/uploads'
   VECTOR_STORE_DIR = '/data/vector_stores'
+  PYTHONUNBUFFERED = '1'
 
 [[mounts]]
   source = 'docchat_data'
