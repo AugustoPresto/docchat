@@ -33,7 +33,7 @@ app.include_router(chat.router, prefix="/api/v1")
 async def health():
     if settings.groq_api_key:
         provider = "groq"
-        model = "llama-3.2-3b-preview"
+        model = settings.groq_chat_model
     elif settings.openai_api_key:
         provider = "openai"
         model = "gpt-4o-mini"
