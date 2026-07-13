@@ -299,4 +299,4 @@ Pull requests are welcome! Please open an issue first for major changes.
 
 ## 📄 License
 
-MIT © [Augusto de Souza Cardoso](https://github.com/AugustoPresto)
+MIT © [Augusto Souza](https://github.com/AugustoPresto)

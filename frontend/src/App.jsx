@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
 import { listDocuments, checkHealth } from './services/api';
+import { Menu } from 'lucide-react';
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
 function ToastContainer({ toasts }) {
@@ -52,6 +53,7 @@ export default function App() {
   const [toasts, setToasts] = useState([]);
   const [health, setHealth] = useState(null);
   const [healthStatus, setHealthStatus] = useState('loading');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Poll health status and load documents once online
   useEffect(() => {
@@ -102,6 +104,7 @@ export default function App() {
   const handleUploaded = (doc) => {
     setDocuments((prev) => [doc, ...prev]);
     setActiveDoc(doc);
+    setIsSidebarOpen(false);
   };
 
   const handleDeleted = (docId) => {
@@ -111,15 +114,24 @@ export default function App() {
 
   return (
     <div className="app-layout">
+      {isSidebarOpen && (
+        <div className="sidebar-backdrop" onClick={() => setIsSidebarOpen(false)} />
+      )}
+
       <Sidebar
         documents={documents}
         activeDocId={activeDoc?.id}
         onUploaded={handleUploaded}
-        onSelect={setActiveDoc}
+        onSelect={(doc) => {
+          setActiveDoc(doc);
+          setIsSidebarOpen(false);
+        }}
         onDeleted={handleDeleted}
         onToast={addToast}
         health={health}
         healthStatus={healthStatus}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
       />
 
       <main className="main-content">
@@ -128,9 +140,21 @@ export default function App() {
             key={activeDoc.id}
             document={activeDoc}
             onToast={addToast}
+            onToggleSidebar={() => setIsSidebarOpen(true)}
           />
         ) : (
-          <EmptyState health={health} />
+          <div style={{ position: 'relative', display: 'flex', flex: 1, flexDirection: 'column', height: '100%' }}>
+            <div className="mobile-header">
+              <button className="mobile-menu-btn" onClick={() => setIsSidebarOpen(true)} aria-label="Open menu">
+                <Menu size={20} />
+              </button>
+              <div className="logo" style={{ marginBottom: 0 }}>
+                <div className="logo-icon" style={{ width: '28px', height: '28px', fontSize: '13px' }}>💬</div>
+                <span className="logo-text" style={{ fontSize: '15px' }}>DocChat</span>
+              </div>
+            </div>
+            <EmptyState health={health} />
+          </div>
         )}
       </main>
 
@@ -138,3 +162,4 @@ export default function App() {
     </div>
   );
 }
+

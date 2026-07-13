@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { RotateCcw, Send } from 'lucide-react';
+import { RotateCcw, Send, Menu } from 'lucide-react';
 import Message from './Message';
 import { sendMessage } from '../services/api';
 
@@ -9,7 +9,7 @@ const WELCOME_MESSAGES = [
   "What are the main conclusions?",
 ];
 
-export default function ChatInterface({ document, onToast }) {
+export default function ChatInterface({ document, onToast, onToggleSidebar }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -86,6 +86,9 @@ export default function ChatInterface({ document, onToast }) {
     <div className="chat-area">
       {/* Header */}
       <div className="chat-header">
+        <button className="mobile-menu-btn" onClick={onToggleSidebar} aria-label="Open menu">
+          <Menu size={20} />
+        </button>
         <span className="chat-header-icon">💬</span>
         <div className="chat-header-info">
           <h3>{document.filename}</h3>

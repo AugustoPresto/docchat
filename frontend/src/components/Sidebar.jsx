@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import DocumentUpload from './DocumentUpload';
 import DocumentList from './DocumentList';
 import { checkHealth } from '../services/api';
+import { X } from 'lucide-react';
 
 function DeviceBadge({ device, gpuName, vramGb }) {
   const isGpu = device === 'cuda' || device === 'mps';
@@ -35,7 +36,7 @@ function DeviceBadge({ device, gpuName, vramGb }) {
   );
 }
 
-export default function Sidebar({ documents, activeDocId, onUploaded, onSelect, onDeleted, onToast, health, healthStatus }) {
+export default function Sidebar({ documents, activeDocId, onUploaded, onSelect, onDeleted, onToast, health, healthStatus, isOpen, onClose }) {
   const isCloud = health?.provider === 'groq' || health?.provider === 'openai';
   const logoTagline = isCloud
     ? `Powered by ${health.provider.toUpperCase()} (Cloud LLM)`
@@ -52,12 +53,17 @@ export default function Sidebar({ documents, activeDocId, onUploaded, onSelect, 
     : 'Ollama connected';
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
       {/* Logo */}
       <div className="sidebar-header">
-        <div className="logo">
-          <div className="logo-icon">💬</div>
-          <span className="logo-text">DocChat</span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+          <div className="logo">
+            <div className="logo-icon">💬</div>
+            <span className="logo-text">DocChat</span>
+          </div>
+          <button className="sidebar-close-btn" onClick={onClose} aria-label="Close sidebar">
+            <X size={18} />
+          </button>
         </div>
         <div className="logo-tagline">{logoTagline}</div>
       </div>
