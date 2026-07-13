@@ -4,7 +4,7 @@ const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
 
 const api = axios.create({
   baseURL: BASE_URL,
-  timeout: 120000, // 2min — Ollama can be slow on first call
+  timeout: 300000, // 5min default — Ollama can be slow on first call
 });
 
 // ── Documents ─────────────────────────────────────────────────────────────────
@@ -14,6 +14,7 @@ export const uploadDocument = async (file, onProgress) => {
 
   const { data } = await api.post('/documents/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 0, // Disable timeout for uploads (large files can take time to process/embed)
     onUploadProgress: (e) => {
       if (onProgress && e.total) {
         onProgress(Math.round((e.loaded * 100) / e.total));
@@ -38,6 +39,8 @@ export const sendMessage = async (documentId, message, conversationHistory = [])
     document_id: documentId,
     message,
     conversation_history: conversationHistory,
+  }, {
+    timeout: 300000, // 5 minutes for chat queries in case Ollama is slow
   });
   return data;
 };
