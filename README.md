@@ -140,6 +140,12 @@ cp .env.example .env
 uvicorn app.main:app --reload --port 8000
 ```
 
+> [!TIP]
+> If you have `OPENAI_API_KEY` or `GROQ_API_KEY` defined globally in your system environment variables and want to force the local backend to run **only using Ollama (local)**, start the server by clearing those variables for that execution:
+> ```bash
+> OPENAI_API_KEY="" GROQ_API_KEY="" uvicorn app.main:app --reload --port 8000
+> ```
+
 > **First run:** the embedding model (`all-MiniLM-L6-v2`, ~91 MB) downloads automatically from HuggingFace.
 
 ### 3. Start the frontend
