@@ -1,3 +1,4 @@
+from __future__ import annotations
 import asyncio
 import json
 import shutil
@@ -5,10 +6,11 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from langchain_community.document_loaders import PyPDFLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_community.vectorstores import FAISS
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from langchain_huggingface import HuggingFaceEmbeddings
+    from langchain_community.vectorstores import FAISS
+
 
 from app.config import settings
 from app.device import DEVICE
@@ -45,9 +47,10 @@ def _save_metadata(data: dict) -> None:
 _embeddings_instance = None
 
 
-def _get_embeddings() -> HuggingFaceEmbeddings:
+def _get_embeddings() -> "HuggingFaceEmbeddings":
     global _embeddings_instance
     if _embeddings_instance is None:
+        from langchain_huggingface import HuggingFaceEmbeddings
         _embeddings_instance = HuggingFaceEmbeddings(
             model_name=settings.embed_model,
             model_kwargs={"device": DEVICE},
@@ -68,6 +71,10 @@ async def process_document(file_path: str, original_filename: str, file_size: in
 
     def _sync_process() -> dict:
         """Runs entirely in a background thread — no async allowed here."""
+        from langchain_community.document_loaders import PyPDFLoader
+        from langchain_text_splitters import RecursiveCharacterTextSplitter
+        from langchain_community.vectorstores import FAISS
+
         # 1. Load PDF pages
         loader = PyPDFLoader(file_path)
         pages = loader.load()
@@ -153,7 +160,7 @@ def delete_document(doc_id: str) -> bool:
     return True
 
 
-def load_vector_store(doc_id: str) -> FAISS | None:
+def load_vector_store(doc_id: str) -> "FAISS" | None:
     metadata = _load_metadata()
     doc = metadata.get(doc_id)
     if not doc:
@@ -163,5 +170,6 @@ def load_vector_store(doc_id: str) -> FAISS | None:
     if not Path(store_path).exists():
         return None
 
+    from langchain_community.vectorstores import FAISS
     embeddings = _get_embeddings()
     return FAISS.load_local(store_path, embeddings, allow_dangerous_deserialization=True)

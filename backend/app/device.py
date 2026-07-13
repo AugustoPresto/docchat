@@ -4,6 +4,7 @@ Device detection for local AI inference.
 Priority: CUDA (NVIDIA) > MPS (Apple Silicon) > CPU
 """
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +14,11 @@ def detect_device() -> str:
     Detect the best available compute device.
     Returns 'cuda', 'mps', or 'cpu'.
     """
+    # On Fly.io, we are always on CPU-only VMs. Avoid importing torch entirely.
+    if os.getenv("FLY_APP_NAME"):
+        logger.info("🟢 Running on Fly.io — defaulting to CPU")
+        return "cpu"
+
     try:
         import torch
 
@@ -35,6 +41,9 @@ def detect_device() -> str:
 
 def get_device_info() -> dict:
     """Return a dict with device details for the health endpoint."""
+    if os.getenv("FLY_APP_NAME"):
+        return {"device": "cpu", "gpu_name": None}
+
     try:
         import torch
 
