@@ -165,7 +165,7 @@ def process_document(doc_id: str) -> None:
     with _processing_lock:
         try:
             _process(doc)
-        except Exception as exc:  # noqa: BLE001 — any failure must reach the UI
+        except Exception as exc:
             logger.exception("Failed to process document %s", doc_id)
             shutil.rmtree(doc["store_path"], ignore_errors=True)
             db.update(doc_id, status="error", stage=None, error=_friendly_error(exc))

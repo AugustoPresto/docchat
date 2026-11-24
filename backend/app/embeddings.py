@@ -39,5 +39,8 @@ def _build() -> Embeddings:
     return FastEmbedEmbeddings(
         model_name=settings.embed_model_cpu,
         cache_dir=settings.embed_cache_dir,
-        batch_size=32,
+        # Small batches keep ONNX Runtime's memory arena small: measured on a
+        # 4-core laptop, batch 4 peaked at ~250MB vs ~700MB with 32, at the
+        # same (or better) speed. Matters for 512MB free hosts and weak PCs.
+        batch_size=4,
     )

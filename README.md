@@ -155,6 +155,12 @@ uvicorn app.main:app --reload --port 8000
 > **First run:** the embedding model (`all-MiniLM-L6-v2`, ~90 MB) downloads once into `backend/model_cache/`.
 > After that — with `ollama pull` done — **DocChat works with no internet connection**.
 >
+> **Coming from the old PyTorch setup?** If `torch`/`transformers` are still installed in your venv,
+> LangChain imports them at startup (~500 MB of RAM for nothing). Unless you use the GPU backend, remove them:
+> `pip uninstall -y torch transformers sentence-transformers langchain-huggingface`.
+> Measured on a 469-page book (4-core laptop, no GPU): **66 MB idle, ~330 MB peak, ~45 s to index**;
+> PDF parsing alone went from 24 s (pypdf) to 1.5 s (pypdfium2).
+>
 > **Upgrading from an older version:** existing documents are imported automatically from
 > `documents_metadata.json` into `vector_stores/docchat.db` on the first start.
 

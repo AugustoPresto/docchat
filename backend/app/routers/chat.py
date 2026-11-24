@@ -49,12 +49,12 @@ async def chat(request: ChatRequest, owner: str | None = Depends(get_owner)):
             conversation_history=request.conversation_history,
         )
     except LookupError as e:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
     except ValueError as e:
-        raise HTTPException(status.HTTP_409_CONFLICT, str(e))
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
     except Exception:
         logger.exception("Chat failed for document %s", request.document_id)
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, _llm_error_message())
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, _llm_error_message()) from None
 
 
 @router.post("/stream")

@@ -1,3 +1,4 @@
+import asyncio
 import re
 import uuid
 
@@ -52,18 +53,19 @@ async def upload_document(
     size = 0
 
     # Stream to disk in chunks — never hold the whole file in memory.
+    # File I/O runs in a thread so the event loop stays responsive.
     try:
-        with open(save_path, "wb") as out:
+        out = await asyncio.to_thread(open, save_path, "wb")
+        try:
             while chunk := await file.read(_CHUNK):
                 if size == 0 and not chunk.startswith(b"%PDF"):
                     raise HTTPException(status.HTTP_400_BAD_REQUEST, "This file is not a valid PDF.")
                 size += len(chunk)
                 if size > max_bytes:
-                    raise HTTPException(
-                        413,
-                        f"File is larger than {settings.max_upload_mb} MB.",
-                    )
-                out.write(chunk)
+                    raise HTTPException(413, f"File is larger than {settings.max_upload_mb} MB.")
+                await asyncio.to_thread(out.write, chunk)
+        finally:
+            await asyncio.to_thread(out.close)
     except BaseException:
         save_path.unlink(missing_ok=True)
         raise
