@@ -8,9 +8,34 @@ function formatBytes(bytes) {
 }
 
 function formatDate(iso) {
-  return new Date(iso).toLocaleDateString('en-US', {
-    month: 'short', day: 'numeric',
-  });
+  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+const STAGE_LABEL = {
+  queued: 'Waiting in queue…',
+  reading: 'Reading pages…',
+  indexing: 'Indexing…',
+};
+
+function DocMeta({ doc }) {
+  if (doc.status === 'processing') {
+    return (
+      <div className="doc-processing">
+        <div className="doc-meta">{STAGE_LABEL[doc.stage] || 'Processing…'} {doc.progress}%</div>
+        <div className="progress-bar-track">
+          <div className="progress-bar-fill" style={{ width: `${Math.max(doc.progress, 3)}%` }} />
+        </div>
+      </div>
+    );
+  }
+  if (doc.status === 'error') {
+    return <div className="doc-meta doc-meta-error" title={doc.error}>⚠️ {doc.error}</div>;
+  }
+  return (
+    <div className="doc-meta">
+      {doc.page_count}p · {doc.chunk_count} chunks · {formatBytes(doc.size_bytes)} · {formatDate(doc.uploaded_at)}
+    </div>
+  );
 }
 
 export default function DocumentList({ documents, activeDocId, onSelect, onDeleted, onToast }) {
@@ -37,31 +62,42 @@ export default function DocumentList({ documents, activeDocId, onSelect, onDelet
 
   return (
     <div className="doc-list">
-      {documents.map((doc) => (
-        <div
-          key={doc.id}
-          className={`doc-item ${doc.id === activeDocId ? 'active' : ''}`}
-          onClick={() => onSelect(doc)}
-          id={`doc-item-${doc.id}`}
-          title={doc.filename}
-        >
-          <span className="doc-icon">📄</span>
-          <div className="doc-info">
-            <div className="doc-name">{doc.filename}</div>
-            <div className="doc-meta">
-              {doc.page_count}p · {doc.chunk_count} chunks · {formatBytes(doc.size_bytes)} · {formatDate(doc.uploaded_at)}
-            </div>
-          </div>
-          <button
-            className="doc-delete-btn"
-            onClick={(e) => handleDelete(e, doc.id, doc.filename)}
-            id={`delete-doc-${doc.id}`}
-            title="Delete document"
+      {documents.map((doc) => {
+        const ready = doc.status === 'ready';
+        return (
+          <div
+            key={doc.id}
+            className={`doc-item ${doc.id === activeDocId ? 'active' : ''} ${ready ? '' : 'disabled'}`}
+            onClick={() => ready && onSelect(doc)}
+            id={`doc-item-${doc.id}`}
+            title={doc.filename}
+            role="button"
+            tabIndex={ready ? 0 : -1}
+            aria-disabled={!ready}
+            onKeyDown={(e) => {
+              if (ready && (e.key === 'Enter' || e.key === ' ')) {
+                e.preventDefault();
+                onSelect(doc);
+              }
+            }}
           >
-            <Trash2 size={13} />
-          </button>
-        </div>
-      ))}
+            <span className="doc-icon">{doc.status === 'processing' ? '⏳' : '📄'}</span>
+            <div className="doc-info">
+              <div className="doc-name">{doc.filename}</div>
+              <DocMeta doc={doc} />
+            </div>
+            <button
+              className="doc-delete-btn"
+              onClick={(e) => handleDelete(e, doc.id, doc.filename)}
+              id={`delete-doc-${doc.id}`}
+              title="Delete document"
+              aria-label={`Delete ${doc.filename}`}
+            >
+              <Trash2 size={13} />
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 }

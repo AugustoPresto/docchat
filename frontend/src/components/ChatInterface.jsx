@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { RotateCcw, Send, Menu } from 'lucide-react';
+import { RotateCcw, Send, Menu, Square } from 'lucide-react';
 import Message from './Message';
-import { sendMessage } from '../services/api';
+import { randomId, streamMessage } from '../services/api';
 
 const WELCOME_MESSAGES = [
-  "What is this document about?",
-  "Summarize the key points.",
-  "What are the main conclusions?",
+  'What is this document about?',
+  'Summarize the key points.',
+  'What are the main conclusions?',
 ];
 
 export default function ChatInterface({ document, onToast, onToggleSidebar }) {
@@ -15,59 +15,73 @@ export default function ChatInterface({ document, onToast, onToggleSidebar }) {
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const abortRef = useRef(null);
 
-  // Reset chat when document changes
   useEffect(() => {
-    setMessages([]);
-    setInput('');
     inputRef.current?.focus();
-  }, [document.id]);
+    return () => abortRef.current?.abort();
+  }, []);
 
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isLoading]);
+  }, [messages]);
+
+  const updateMessage = (id, fn) =>
+    setMessages((prev) => prev.map((m) => (m.id === id ? fn(m) : m)));
 
   const handleSend = async (text = input.trim()) => {
     if (!text || isLoading) return;
 
-    const userMsg = {
-      role: 'user',
-      content: text,
-      timestamp: new Date().toISOString(),
-    };
+    const history = messages
+      .filter((m) => !m.streaming && m.content)
+      .map((m) => ({ role: m.role, content: m.content }));
 
-    setMessages((prev) => [...prev, userMsg]);
+    const userMsg = { id: randomId(), role: 'user', content: text, timestamp: new Date().toISOString() };
+    const aiId = randomId();
+    const aiMsg = { id: aiId, role: 'assistant', content: '', sources: [], streaming: true, timestamp: new Date().toISOString() };
+
+    setMessages((prev) => [...prev, userMsg, aiMsg]);
     setInput('');
+    if (inputRef.current) inputRef.current.style.height = 'auto';
     setIsLoading(true);
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+    let received = false;
+
     try {
-      // Build conversation history for context
-      const history = messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
-
-      const response = await sendMessage(document.id, text, history);
-
-      const aiMsg = {
-        role: 'assistant',
-        content: response.answer,
-        sources: response.sources,
-        timestamp: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, aiMsg]);
+      await streamMessage(document.id, text, history, {
+        signal: controller.signal,
+        onSources: (sources) => updateMessage(aiId, (m) => ({ ...m, sources })),
+        onToken: (token) => {
+          received = true;
+          updateMessage(aiId, (m) => ({ ...m, content: m.content + token }));
+        },
+      });
+      updateMessage(aiId, (m) => ({ ...m, streaming: false }));
     } catch (err) {
-      const detail = err.response?.data?.detail || err.message;
-      onToast('error', `⚠️ ${detail}`);
-      // Remove the user message on error so they can retry
-      setMessages((prev) => prev.slice(0, -1));
-      setInput(text);
+      if (err.name === 'AbortError') {
+        if (received) updateMessage(aiId, (m) => ({ ...m, streaming: false }));
+        else setMessages((prev) => prev.filter((m) => m.id !== aiId && m.id !== userMsg.id));
+        return;
+      }
+      onToast('error', `⚠️ ${err.message}`);
+      if (received) {
+        updateMessage(aiId, (m) => ({ ...m, streaming: false }));
+      } else {
+        // Nothing arrived: drop both messages so the question can be retried.
+        setMessages((prev) => prev.filter((m) => m.id !== aiId && m.id !== userMsg.id));
+        setInput(text);
+      }
     } finally {
+      abortRef.current = null;
       setIsLoading(false);
       inputRef.current?.focus();
     }
   };
+
+  const handleStop = () => abortRef.current?.abort();
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -77,6 +91,7 @@ export default function ChatInterface({ document, onToast, onToggleSidebar }) {
   };
 
   const handleClear = () => {
+    abortRef.current?.abort();
     setMessages([]);
     setInput('');
     inputRef.current?.focus();
@@ -106,42 +121,22 @@ export default function ChatInterface({ document, onToast, onToggleSidebar }) {
 
       {/* Messages */}
       <div className="messages-container" id="messages-container">
-        {messages.length === 0 && !isLoading ? (
-          <div style={{ marginTop: '24px' }}>
-            <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '16px', textAlign: 'center' }}>
-              💡 Try asking:
-            </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '440px', margin: '0 auto' }}>
+        {messages.length === 0 && (
+          <div className="suggestions">
+            <p className="suggestions-title">💡 Try asking:</p>
+            <div className="suggestions-list">
               {WELCOME_MESSAGES.map((q) => (
-                <button
-                  key={q}
-                  onClick={() => handleSend(q)}
-                  style={{
-                    padding: '10px 16px',
-                    background: 'var(--bg-elevated)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 'var(--radius-md)',
-                    color: 'var(--text-secondary)',
-                    fontSize: '13px',
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                    transition: 'var(--transition)',
-                  }}
-                  onMouseEnter={(e) => { e.target.style.borderColor = 'var(--accent)'; e.target.style.color = 'var(--text-primary)'; }}
-                  onMouseLeave={(e) => { e.target.style.borderColor = 'var(--border)'; e.target.style.color = 'var(--text-secondary)'; }}
-                >
+                <button key={q} className="suggestion-btn" onClick={() => handleSend(q)}>
                   {q}
                 </button>
               ))}
             </div>
           </div>
-        ) : null}
+        )}
 
         {messages.map((msg) => (
-          <Message key={msg.timestamp} message={msg} />
+          <Message key={msg.id} message={msg} />
         ))}
-
-        {isLoading && <Message isTyping />}
 
         <div ref={messagesEndRef} />
       </div>
@@ -158,22 +153,27 @@ export default function ChatInterface({ document, onToast, onToggleSidebar }) {
             onKeyDown={handleKeyDown}
             placeholder="Ask anything about this document…"
             rows={1}
-            disabled={isLoading}
-            style={{ height: 'auto' }}
+            maxLength={4000}
             onInput={(e) => {
               e.target.style.height = 'auto';
               e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
             }}
           />
-          <button
-            id="send-btn"
-            className="send-btn"
-            onClick={() => handleSend()}
-            disabled={!input.trim() || isLoading}
-            title="Send message (Enter)"
-          >
-            <Send size={15} />
-          </button>
+          {isLoading ? (
+            <button id="stop-btn" className="send-btn" onClick={handleStop} title="Stop generating">
+              <Square size={13} />
+            </button>
+          ) : (
+            <button
+              id="send-btn"
+              className="send-btn"
+              onClick={() => handleSend()}
+              disabled={!input.trim()}
+              title="Send message (Enter)"
+            >
+              <Send size={15} />
+            </button>
+          )}
         </div>
         <div className="input-hint">
           Press <strong>Enter</strong> to send · <strong>Shift+Enter</strong> for new line
