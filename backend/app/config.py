@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     chunk_size: int = 1000
     chunk_overlap: int = 200
     retriever_k: int = 4
+    # Combine semantic search with BM25 keyword search (better for names, codes,
+    # rare words). Set to false for vector-only retrieval.
+    hybrid_search: bool = True
 
     # ── Limits / public demo ─────────────────────────────────────────────────
     max_upload_mb: int = 100

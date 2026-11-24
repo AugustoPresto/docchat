@@ -7,7 +7,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from app.config import get_provider, settings
 from app.schemas import ChatResponse, HistoryMessage, SourceChunk
-from app.services.document_service import load_vector_store
+from app.services.document_service import load_index
 
 
 def _get_llm():
@@ -75,11 +75,13 @@ def _sources(source_docs) -> list[SourceChunk]:
 
 async def _prepare(doc_id: str, message: str, history: list[HistoryMessage]):
     """Retrieve context and build the prompt inputs (off the event loop)."""
-    vector_store = await asyncio.to_thread(load_vector_store, doc_id)
-    if not vector_store:
+    index = await asyncio.to_thread(load_index, doc_id)
+    if not index:
         raise LookupError(f"Document '{doc_id}' not found or not indexed.")
 
-    source_docs = await vector_store.asimilarity_search(message, k=settings.retriever_k)
+    source_docs = await asyncio.to_thread(
+        index.search, message, settings.retriever_k, settings.hybrid_search
+    )
     inputs = {
         "context": _format_docs(source_docs),
         "question": message,

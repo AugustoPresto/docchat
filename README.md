@@ -13,7 +13,7 @@ DocChat is a full-stack **RAG (Retrieval-Augmented Generation)** application tha
 ## ✨ Features
 
 - 📄 **Upload any PDF** — contracts, books, docs, research papers
-- 🔍 **Semantic search** with FAISS vector store
+- 🔍 **Hybrid search**: FAISS semantic search + BM25 keyword search, so names, codes and rare words are found too
 - 🧠 **RAG pipeline** — finds relevant chunks before answering
 - 💬 **Conversational memory** — multi-turn chat with context
 - 📚 **Source citations** — see exactly which page the answer came from
@@ -94,7 +94,10 @@ User (no login, anonymous X-Client-Id)
 2. **Embedding** — each chunk is converted to a vector by FastEmbed (ONNX, local, no GPU needed)
 3. **Indexing** — vectors are stored in FAISS on disk (one index per document)
 4. **Question** — the user's question is also converted to a vector
-5. **Retrieval** — the 4 most similar chunks are fetched via cosine similarity
+5. **Retrieval** — hybrid search: the top semantic matches (FAISS) and the top keyword matches
+   (BM25, accent-insensitive) are merged with Reciprocal Rank Fusion, keeping the best 4 chunks.
+   On a 469-page Portuguese book, this found the answer for 8/12 test questions vs 5/12 with
+   vectors alone, at ~4 ms per question and no extra model
 6. **Answer** — chunks + conversation history are sent to the LLM for a grounded answer
 7. **Citation** — the page number of each used chunk is returned to the UI
 
@@ -236,9 +239,11 @@ docchat/
 │   │   │   └── chat.py              # RAG Q&A endpoint
 │   │   └── services/
 │   │       ├── document_service.py  # PDF → chunks → embeddings → FAISS (background)
+│   │       ├── retrieval.py         # Hybrid search: FAISS + BM25 + rank fusion
 │   │       └── chat_service.py      # RAG chain + LLM (Ollama / Groq / OpenAI)
 │   ├── tests/
-│   │   └── test_api.py              # Pytest suite
+│   │   ├── test_api.py              # API tests (fake embeddings + LLM)
+│   │   └── test_retrieval.py        # BM25 / hybrid search tests
 │   ├── requirements.txt             # Python dependencies (CPU, no PyTorch)
 │   ├── requirements-gpu.txt         # Optional PyTorch/GPU embeddings
 │   ├── requirements-dev.txt         # pytest + ruff
@@ -286,6 +291,7 @@ All settings live in `backend/.env` (copy from `.env.example`):
 | `CHUNK_SIZE` | `1000` | Characters per text chunk |
 | `CHUNK_OVERLAP` | `200` | Overlap between chunks |
 | `RETRIEVER_K` | `4` | Chunks retrieved per question |
+| `HYBRID_SEARCH` | `true` | Combine semantic search with BM25 keyword search (names, codes, rare words) |
 | `MAX_UPLOAD_MB` | `100` | Maximum PDF size |
 | `ISOLATE_CLIENTS` | `false` | Per-browser documents (public demo, no login) |
 | `DOC_TTL_HOURS` | `0` | Auto-delete documents after N hours (0 = never) |
@@ -313,7 +319,7 @@ Tests run fully offline (fake embeddings and LLM) — no Ollama or model downloa
 | **Frontend** | React 18, Vite, Axios, react-dropzone, react-markdown |
 | **Backend** | Python 3.11, FastAPI, Uvicorn |
 | **Embeddings** | FastEmbed / ONNX (`all-MiniLM-L6-v2`); optional sentence-transformers on GPU |
-| **AI / RAG** | LangChain LCEL, FAISS-CPU |
+| **AI / RAG** | LangChain LCEL, FAISS-CPU, BM25 hybrid search |
 | **LLM (local)** | Ollama (`llama3.2:3b`) |
 | **LLM (cloud)** | Groq (`llama-3.1-8b-instant`) |
 | **PDF parsing** | pypdfium2 (PDFium), pypdf fallback |

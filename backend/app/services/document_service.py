@@ -20,7 +20,7 @@ from app.embeddings import get_embeddings
 from app.schemas import DocumentResponse
 
 if TYPE_CHECKING:
-    from langchain_community.vectorstores import FAISS
+    from app.services.retrieval import DocumentIndex
 
 logger = logging.getLogger(__name__)
 
@@ -232,9 +232,9 @@ def _process(doc: dict) -> None:
     db.update(doc_id, status="ready", stage=None, progress=100, error=None)
 
 
-# ── Vector store loading (with a small LRU cache) ────────────────────────────
+# ── Index loading (with a small LRU cache) ────────────────────────────────────
 _CACHE_SIZE = 4
-_cache: OrderedDict[str, FAISS] = OrderedDict()
+_cache: OrderedDict[str, DocumentIndex] = OrderedDict()
 _cache_lock = threading.Lock()
 
 
@@ -243,7 +243,8 @@ def _cache_evict(doc_id: str) -> None:
         _cache.pop(doc_id, None)
 
 
-def load_vector_store(doc_id: str) -> FAISS | None:
+def load_index(doc_id: str) -> DocumentIndex | None:
+    """Load a ready document's FAISS index plus its BM25 keyword index."""
     with _cache_lock:
         if doc_id in _cache:
             _cache.move_to_end(doc_id)
@@ -261,10 +262,13 @@ def load_vector_store(doc_id: str) -> FAISS | None:
 
     from langchain_community.vectorstores import FAISS
 
+    from app.services.retrieval import DocumentIndex
+
     # Safe: these pickles are written only by this server, never uploaded.
     store = FAISS.load_local(doc["store_path"], get_embeddings(), allow_dangerous_deserialization=True)
+    index = DocumentIndex.from_store(store)
     with _cache_lock:
-        _cache[doc_id] = store
+        _cache[doc_id] = index
         while len(_cache) > _CACHE_SIZE:
             _cache.popitem(last=False)
-    return store
+    return index
