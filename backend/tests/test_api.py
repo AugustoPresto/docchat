@@ -51,7 +51,7 @@ def test_fastembed_backend_always_uses_cpu_model(monkeypatch):
     import app.device as dev_module
     monkeypatch.setattr(settings, "embed_backend", "fastembed")
     monkeypatch.setattr(dev_module, "DEVICE", "cuda")
-    assert "MiniLM" in settings.embed_model
+    assert settings.embed_model == settings.embed_model_cpu
 
 
 @pytest.mark.parametrize("device,expected", [("cpu", "MiniLM"), ("cuda", "mpnet"), ("mps", "mpnet")])
@@ -186,7 +186,10 @@ def test_legacy_json_metadata_is_imported(client):
     assert doc["status"] == "ready"
     assert not legacy.exists()
     with sqlite3.connect(db.db_path()) as conn:
-        assert conn.execute("SELECT owner_id FROM documents").fetchone()[0] == "local"
+        owner, model = conn.execute("SELECT owner_id, embed_model FROM documents").fetchone()
+    assert owner == "local"
+    # Old indexes keep the model they were built with, so a model change is detected.
+    assert model == db.LEGACY_EMBED_MODEL
 
 
 # ── Client isolation (public demo, no login) ─────────────────────────────────
@@ -269,6 +272,14 @@ def test_chat_answer_with_sources(client, fake_llm, sample_pdf):
     assert data["answer"] == "The answer is 42."
     assert data["sources"]
     assert {s["page"] for s in data["sources"]} <= {1, 2}
+
+
+def test_chat_asks_for_reupload_after_embedding_model_change(client, fake_llm, monkeypatch, sample_pdf):
+    doc_id = upload(client, sample_pdf).json()["id"]
+    monkeypatch.setattr(settings, "embed_model_cpu", "some/other-model")
+    response = client.post("/api/v1/chat/", json={"document_id": doc_id, "message": "secret?"})
+    assert response.status_code == 409
+    assert "upload it again" in response.json()["detail"]
 
 
 def test_chat_stream(client, fake_llm, sample_pdf):

@@ -17,6 +17,9 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Model the pre-SQLite versions of the app indexed every document with (CPU path).
+LEGACY_EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+
 COLUMNS = (
     "id", "owner_id", "filename", "page_count", "chunk_count", "size_bytes",
     "uploaded_at", "status", "stage", "progress", "error", "file_path",
@@ -94,7 +97,7 @@ def _migrate_legacy_json() -> None:
                     rec["id"], rec["filename"], rec.get("page_count", 0),
                     rec.get("chunk_count", 0), rec.get("size_bytes", 0),
                     rec["uploaded_at"], rec.get("file_path"), rec["store_path"],
-                    settings.embed_model_cpu,
+                    LEGACY_EMBED_MODEL,
                 ),
             )
     legacy.rename(legacy.with_suffix(".json.migrated"))
