@@ -181,12 +181,25 @@ Open **http://127.0.0.1:5173** and upload a PDF. 🎉
 
 ## 🐳 Docker Compose (recommended)
 
+Runs everything (Ollama + backend + frontend) with a single command. No Python, Node or local
+Ollama needed:
+
 ```bash
-ollama pull llama3.2:3b
-docker compose up -d
+docker compose up -d --build
 ```
 
 Open **http://localhost:5173**
+
+- **First run** (needs internet): builds the images (backend ~710 MB, embedding model included) and
+  the `ollama-pull` container downloads `llama3.2:3b` (~2 GB) into the `ollama_data` volume.
+  Follow it with `docker logs -f docchat-ollama-pull`; chat works once it exits.
+- **After that it runs fully offline.** On later starts `ollama-pull` just fails quietly when there
+  is no connection; the model is already in the volume.
+- Use another model with `OLLAMA_CHAT_MODEL=qwen2.5:3b docker compose up -d`.
+- Documents live in the `uploads` / `vector_stores` Docker volumes, separate from a local
+  `uvicorn` run. `docker compose down` keeps them; `docker compose down -v` deletes them
+  (and the downloaded model).
+- This Ollama is separate from one installed on your machine, so the model is downloaded once more.
 
 ---
 

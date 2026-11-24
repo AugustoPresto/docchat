@@ -7,6 +7,11 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
     # Enable GPU if available (uncomment if you have an NVIDIA GPU)
     # deploy:
     #   resources:
@@ -16,6 +21,19 @@ services:
     #           count: all
     #           capabilities: [gpu]
 
+  # Downloads the chat model into the ollama volume on first run (~2 GB), then exits.
+  # Offline later on it just fails quietly; the model is already in the volume.
+  ollama-pull:
+    image: ollama/ollama:latest
+    container_name: docchat-ollama-pull
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    entrypoint: ["ollama", "pull", "${OLLAMA_CHAT_MODEL:-llama3.2:3b}"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
+
   backend:
     build: ./backend
     container_name: docchat-backend
@@ -23,10 +41,12 @@ services:
       - "8000:8000"
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
-      - OLLAMA_CHAT_MODEL=llama3.2:3b
+      - OLLAMA_CHAT_MODEL=${OLLAMA_CHAT_MODEL:-llama3.2:3b}
+    # Named volumes: documents survive restarts, and the container (root) doesn't
+    # write into the repo or share the database with a local `uvicorn` run.
     volumes:
-      - ./backend/uploads:/app/uploads
-      - ./backend/vector_stores:/app/vector_stores
+      - uploads:/app/uploads
+      - vector_stores:/app/vector_stores
     depends_on:
       - ollama
     restart: unless-stopped
@@ -42,3 +62,5 @@ services:
 
 volumes:
   ollama_data:
+  uploads:
+  vector_stores:
