@@ -24,22 +24,18 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: pip-${{ hashFiles('backend/requirements.txt') }}
+          key: pip-${{ hashFiles('backend/requirements*.txt') }}
 
       - name: Install dependencies
-        run: |
-          pip install -r backend/requirements.txt
-          pip install pytest httpx
+        run: pip install -r backend/requirements-dev.txt
 
       - name: Lint with ruff
-        run: |
-          pip install ruff
-          ruff check backend/
+        run: ruff check backend/
 
+      # Tests use fake embeddings and a fake LLM: no Ollama, no model download.
       - name: Run tests
         working-directory: backend
         run: pytest tests/ -v --tb=short
-        continue-on-error: true  # tests require Ollama, skip in CI
 
   # ── Frontend ───────────────────────────────────────────────────────────────
   frontend:
@@ -59,6 +55,10 @@ jobs:
       - name: Install dependencies
         working-directory: frontend
         run: npm ci
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
 
       - name: Build
         working-directory: frontend

@@ -4,7 +4,7 @@
 
 DocChat is a full-stack **RAG (Retrieval-Augmented Generation)** application that lets you upload any PDF and ask questions about it in natural language. It works fully locally with Ollama (private, no API keys) or in the cloud via Groq/OpenAI.
 
-🔗 **Live demo:** [docchat-frontend.fly.dev](https://docchat-frontend.fly.dev)
+🔗 **Live demo:** _(no login — just open it and drop a PDF; the free server may take ~1 min to wake up)_
 
 ![CI](https://github.com/AugustoPresto/docchat/actions/workflows/ci.yml/badge.svg)
 
@@ -17,11 +17,15 @@ DocChat is a full-stack **RAG (Retrieval-Augmented Generation)** application tha
 - 🧠 **RAG pipeline** — finds relevant chunks before answering
 - 💬 **Conversational memory** — multi-turn chat with context
 - 📚 **Source citations** — see exactly which page the answer came from
-- ☁️ **Cloud deployment** — Fly.io + Groq (no Ollama required)
-- 🔒 **100% local option** — no data leaves your machine when using Ollama
+- 📴 **Offline-first** — Ollama + local embeddings, no internet needed after the first setup
+- 🪶 **Runs on weak PCs** — ONNX embeddings (no PyTorch) and a fast C++ PDF parser
+- ⏳ **Background indexing** — upload returns at once; live progress per document
+- ⌨️ **Streaming answers** — text appears as the model writes it (with a Stop button)
+- 🙋 **No login** — each browser gets an anonymous id; on the demo you only see your own files
+- ☁️ **Free cloud deployment** — Vercel + Render + Groq
 - ⚡ **Fast React UI** — dark mode, drag & drop, auto-scroll
 - 🐳 **Docker Compose** for one-command local setup
-- 🖥️ **Auto GPU detection** — uses CUDA/MPS when available, falls back to CPU
+- 🖥️ **Optional GPU** — CUDA/MPS embeddings via the `sentence-transformers` backend
 
 ---
 
@@ -56,8 +60,8 @@ User (Browser)
 │  └────┬──────┘     └─────────┬──────────┘                   │
 │       │                      │                               │
 │  ┌────▼──────────────────────▼───────┐                       │
-│  │      sentence-transformers        │                       │
-│  │   (local embeddings, very fast)   │                       │
+│  │   FastEmbed (ONNX, CPU, offline)  │                       │
+│  │   all-MiniLM-L6-v2 embeddings     │                       │
 │  └───────────────────────────────────┘                       │
 └──────────────────────────┬───────────────────────────────────┘
                            │  HTTP (answer generation)
@@ -69,42 +73,44 @@ User (Browser)
               └────────────────────────────┘
 ```
 
-### Cloud mode (Fly.io)
+### Cloud mode (free: Vercel + Render + Groq)
 
 ```
-User
+User (no login, anonymous X-Client-Id)
  │ HTTPS
  ▼
-[docchat-frontend.fly.dev]  ← nginx container (Docker)
- │
- │ proxy_pass HTTPS → docchat-backend.fly.dev
+[Vercel]  static React build
+ │ HTTPS (CORS)
  ▼
-[docchat-backend.fly.dev]   ← FastAPI + uvicorn (Docker)
- │
- ├── Persistent volume /data  (PDF uploads + FAISS indexes)
+[Render free web service]  FastAPI + FastEmbed + FAISS (Docker, 512 MB)
+ │   ephemeral disk: documents expire after DOC_TTL_HOURS or on restart
  │
  └── Groq API (llama-3.1-8b-instant)  ← cloud LLM
 ```
 
 ### How RAG works (step by step)
 
-1. **Upload** — PDF is parsed by PyPDF and split into ~1000-character chunks with 200-char overlap
-2. **Embedding** — each chunk is converted to a numeric vector by `sentence-transformers` (local, fast)
+1. **Upload** — the file is streamed to disk and indexed in the background; PDF pages are read with pypdfium2 and split into ~1000-character chunks with 200-char overlap
+2. **Embedding** — each chunk is converted to a vector by FastEmbed (ONNX, local, no GPU needed)
 3. **Indexing** — vectors are stored in FAISS on disk (one index per document)
 4. **Question** — the user's question is also converted to a vector
 5. **Retrieval** — the 4 most similar chunks are fetched via cosine similarity
 6. **Answer** — chunks + conversation history are sent to the LLM for a grounded answer
 7. **Citation** — the page number of each used chunk is returned to the UI
 
-> **Why sentence-transformers instead of Ollama for embeddings?**
-> `nomic-embed-text` via Ollama takes ~2 minutes per chunk on CPU.
-> `all-MiniLM-L6-v2` embeds 10 chunks in **~30ms** — 1000× faster.
+> **Why FastEmbed instead of Ollama or PyTorch for embeddings?**
+> `nomic-embed-text` via Ollama is very slow on CPU, and PyTorch alone is a
+> ~1 GB dependency that takes seconds to import. FastEmbed runs the same
+> `all-MiniLM-L6-v2` model through ONNX Runtime: small, fast on CPU, and the
+> model is cached in `backend/model_cache/` so it works offline.
 
 ---
 
-## 🖥️ GPU Auto-Detection
+## 🖥️ Optional GPU embeddings
 
-The backend detects the best available device at startup:
+The default `fastembed` backend always runs on CPU. If you have a GPU, install
+`requirements-gpu.txt` and set `EMBED_BACKEND=sentence-transformers`; the backend
+then detects the best device at startup (re-upload documents after switching):
 
 | Device | Detected when | Embedding model | Quality |
 |--------|--------------|-----------------|---------|
@@ -135,7 +141,7 @@ ollama pull llama3.2:3b
 ```bash
 cd backend
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.txt   # add -r requirements-gpu.txt for CUDA/MPS
 cp .env.example .env
 uvicorn app.main:app --reload --port 8000
 ```
@@ -146,7 +152,11 @@ uvicorn app.main:app --reload --port 8000
 > OPENAI_API_KEY="" GROQ_API_KEY="" uvicorn app.main:app --reload --port 8000
 > ```
 
-> **First run:** the embedding model (`all-MiniLM-L6-v2`, ~91 MB) downloads automatically from HuggingFace.
+> **First run:** the embedding model (`all-MiniLM-L6-v2`, ~90 MB) downloads once into `backend/model_cache/`.
+> After that — with `ollama pull` done — **DocChat works with no internet connection**.
+>
+> **Upgrading from an older version:** existing documents are imported automatically from
+> `documents_metadata.json` into `vector_stores/docchat.db` on the first start.
 
 ### 3. Start the frontend
 
@@ -171,24 +181,32 @@ Open **http://localhost:5173**
 
 ---
 
-## ☁️ Cloud Deployment (Fly.io + Groq)
+## ☁️ Free Cloud Deployment (Vercel + Render + Groq)
 
-The project supports full cloud deployment on **Fly.io** using **Groq** as the LLM — free, fast, no Ollama needed.
+Every service below has a free tier that covers this setup.
 
-### 1. Set your Groq API key as a secret
+### 1. Groq API key
+Create a free key at [console.groq.com](https://console.groq.com).
 
-```bash
-flyctl secrets set GROQ_API_KEY=your_key_here --app docchat-backend
-```
+### 2. Backend on Render
+1. Render dashboard → **New → Blueprint** → select this repository (uses [`render.yaml`](render.yaml)).
+2. Fill the secret env vars: `GROQ_API_KEY` and `ALLOWED_ORIGINS` (JSON list with your Vercel URL, e.g. `["https://docchat.vercel.app"]`).
+3. Note the service URL, e.g. `https://docchat-backend.onrender.com`.
 
-Get a free key at [console.groq.com](https://console.groq.com).
+The blueprint enables the demo protections: `ISOLATE_CLIENTS=true` (each browser sees only its own documents, no login),
+`DOC_TTL_HOURS=24`, `MAX_DOCS_PER_CLIENT=5`, `MAX_UPLOAD_MB=20`.
 
-### 2. Deploy
+> Free Render services sleep after 15 min without traffic (the next visit waits ~1 min — the UI says
+> "Waking up server") and have no persistent disk, so uploaded documents are temporary. That's fine for a demo.
 
-```bash
-cd backend  && flyctl deploy
-cd frontend && flyctl deploy
-```
+### 3. Frontend on Vercel
+1. **Add New → Project** → import this repository, **Root Directory** = `frontend` (Vite is auto-detected).
+2. Environment variable: `VITE_API_URL=https://<your-render-service>.onrender.com/api/v1`.
+3. Deploy. Put the Vercel URL in the backend's `ALLOWED_ORIGINS`.
+
+### Alternative: Fly.io (paid)
+`backend/fly.toml` and `frontend/fly.toml` still work (`flyctl deploy` in each folder), but Fly.io no longer
+has a free allowance: the VM and the `/data` volume are billed even while suspended.
 
 **LLM priority:** Groq → OpenAI → Ollama (local fallback)
 
@@ -202,17 +220,22 @@ docchat/
 │   ├── app/
 │   │   ├── main.py                  # FastAPI app entry point, CORS, /health
 │   │   ├── config.py                # All settings, loaded from env vars
-│   │   ├── device.py                # Auto GPU detection (CUDA / MPS / CPU)
+│   │   ├── db.py                    # SQLite document metadata
+│   │   ├── deps.py                  # Anonymous client id (X-Client-Id)
+│   │   ├── embeddings.py            # FastEmbed / sentence-transformers singleton
+│   │   ├── device.py                # GPU detection (sentence-transformers backend)
 │   │   ├── schemas.py               # Request/response data models (Pydantic)
 │   │   ├── routers/
 │   │   │   ├── documents.py         # Upload, list, delete PDF endpoints
 │   │   │   └── chat.py              # RAG Q&A endpoint
 │   │   └── services/
-│   │       ├── document_service.py  # PDF → chunks → embeddings → FAISS
+│   │       ├── document_service.py  # PDF → chunks → embeddings → FAISS (background)
 │   │       └── chat_service.py      # RAG chain + LLM (Ollama / Groq / OpenAI)
 │   ├── tests/
 │   │   └── test_api.py              # Pytest suite
-│   ├── requirements.txt             # Python dependencies
+│   ├── requirements.txt             # Python dependencies (CPU, no PyTorch)
+│   ├── requirements-gpu.txt         # Optional PyTorch/GPU embeddings
+│   ├── requirements-dev.txt         # pytest + ruff
 │   ├── Dockerfile                   # Backend container image
 │   └── fly.toml                     # Fly.io config (backend)
 ├── frontend/
@@ -231,6 +254,7 @@ docchat/
 │   ├── vercel.json                  # SPA routing for Vercel deployments
 │   ├── Dockerfile                   # Multi-stage image: build + nginx serve
 │   └── fly.toml                     # Fly.io config (frontend)
+├── render.yaml                      # Render blueprint (free backend)
 ├── docker-compose.yml               # Full local stack: Ollama + backend + frontend
 └── .github/workflows/ci.yml         # CI: lint + build on every push
 ```
@@ -249,11 +273,18 @@ All settings live in `backend/.env` (copy from `.env.example`):
 | `GROQ_CHAT_MODEL` | `llama-3.1-8b-instant` | Groq model |
 | `OPENAI_API_KEY` | _(none)_ | Enables OpenAI fallback |
 | `OPENAI_CHAT_MODEL` | `gpt-4o-mini` | OpenAI model |
-| `UPLOAD_DIR` | `uploads` | Where PDFs are stored |
+| `EMBED_BACKEND` | `fastembed` | `fastembed` (CPU/ONNX) or `sentence-transformers` (GPU) |
+| `EMBED_CACHE_DIR` | `model_cache` | Where embedding models are cached for offline use |
+| `UPLOAD_DIR` | `uploads` | Temporary PDF storage while indexing |
 | `VECTOR_STORE_DIR` | `vector_stores` | Where FAISS indexes are stored |
 | `CHUNK_SIZE` | `1000` | Characters per text chunk |
 | `CHUNK_OVERLAP` | `200` | Overlap between chunks |
 | `RETRIEVER_K` | `4` | Chunks retrieved per question |
+| `MAX_UPLOAD_MB` | `100` | Maximum PDF size |
+| `ISOLATE_CLIENTS` | `false` | Per-browser documents (public demo, no login) |
+| `DOC_TTL_HOURS` | `0` | Auto-delete documents after N hours (0 = never) |
+| `MAX_DOCS_PER_CLIENT` | `0` | Per-browser document limit (0 = unlimited) |
+| `ALLOWED_ORIGINS` | localhost | CORS origins, JSON list |
 
 ---
 
@@ -261,8 +292,11 @@ All settings live in `backend/.env` (copy from `.env.example`):
 
 ```bash
 cd backend
+pip install -r requirements-dev.txt
 pytest tests/ -v
 ```
+
+Tests run fully offline (fake embeddings and LLM) — no Ollama or model download needed.
 
 ---
 
@@ -272,13 +306,14 @@ pytest tests/ -v
 |-------|-----------|
 | **Frontend** | React 18, Vite, Axios, react-dropzone, react-markdown |
 | **Backend** | Python 3.11, FastAPI, Uvicorn |
-| **Embeddings** | sentence-transformers (`all-MiniLM-L6-v2` / `all-mpnet-base-v2`) |
+| **Embeddings** | FastEmbed / ONNX (`all-MiniLM-L6-v2`); optional sentence-transformers on GPU |
 | **AI / RAG** | LangChain LCEL, FAISS-CPU |
 | **LLM (local)** | Ollama (`llama3.2:3b`) |
 | **LLM (cloud)** | Groq (`llama-3.1-8b-instant`) |
-| **PDF parsing** | PyPDF |
+| **PDF parsing** | pypdfium2 (PDFium), pypdf fallback |
+| **Metadata** | SQLite |
 | **Serving** | Docker, Docker Compose, Nginx |
-| **Cloud** | Fly.io (backend + frontend) |
+| **Cloud** | Vercel (frontend) + Render (backend), free tiers |
 | **CI** | GitHub Actions |
 
 ---
@@ -290,10 +325,12 @@ Interactive docs available at **http://localhost:8000/docs** (Swagger UI).
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/health` | AI provider + model status |
-| `POST` | `/api/v1/documents/upload` | Upload and index a PDF |
-| `GET` | `/api/v1/documents/` | List all uploaded documents |
+| `POST` | `/api/v1/documents/upload` | Upload a PDF (202, indexing continues in background) |
+| `GET` | `/api/v1/documents/` | List documents |
+| `GET` | `/api/v1/documents/{id}` | Document metadata + `status` / `stage` / `progress` |
 | `DELETE` | `/api/v1/documents/{id}` | Delete a document and its index |
 | `POST` | `/api/v1/chat/` | Ask a question about a document |
+| `POST` | `/api/v1/chat/stream` | Same, streamed as NDJSON events |
 
 ---
 
