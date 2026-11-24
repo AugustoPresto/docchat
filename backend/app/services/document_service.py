@@ -1,175 +1,270 @@
+"""
+PDF ingestion: parse → chunk → embed → FAISS, run in the background with
+progress reporting, plus document lookup/deletion and an in-memory index cache.
+"""
 from __future__ import annotations
-import asyncio
-import json
+
+import logging
 import shutil
+import threading
 import uuid
+from collections import OrderedDict
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
-
 from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from langchain_huggingface import HuggingFaceEmbeddings
-    from langchain_community.vectorstores import FAISS
 
-
+from app import db
 from app.config import settings
-from app.device import DEVICE
+from app.embeddings import get_embeddings
 from app.schemas import DocumentResponse
 
+if TYPE_CHECKING:
+    from langchain_community.vectorstores import FAISS
 
-# ── Paths ─────────────────────────────────────────────────────────────────────
-UPLOAD_DIR = Path(settings.upload_dir)
-VECTOR_DIR = Path(settings.vector_store_dir)
+logger = logging.getLogger(__name__)
 
-UPLOAD_DIR.mkdir(exist_ok=True)
-VECTOR_DIR.mkdir(exist_ok=True)
+EMBED_BATCH_SIZE = 32
 
-METADATA_FILE = VECTOR_DIR / "documents_metadata.json"
+# Parsing reports progress 0→READ_SHARE %, embedding READ_SHARE→100 %.
+READ_SHARE = 30
 
-
-# ── Metadata helpers ──────────────────────────────────────────────────────────
-def _load_metadata() -> dict:
-    if METADATA_FILE.exists():
-        with open(METADATA_FILE, "r") as f:
-            return json.load(f)
-    return {}
+# One document is processed at a time: on a weak PC or a 512MB VM, two
+# concurrent embedding jobs are slower overall and can run out of memory.
+_processing_lock = threading.Lock()
+# pdfium is not thread-safe.
+_pdfium_lock = threading.Lock()
 
 
-def _save_metadata(data: dict) -> None:
-    with open(METADATA_FILE, "w") as f:
-        json.dump(data, f, indent=2, default=str)
+def upload_dir() -> Path:
+    path = Path(settings.upload_dir)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
-# ── Embedding model (singleton) ──────────────────────────────────────────────
-# Device auto-detected at startup: CUDA > MPS > CPU
-# GPU → all-mpnet-base-v2 (higher quality, 420MB)
-# CPU → all-MiniLM-L6-v2 (fast, lightweight, 91MB)
-_embeddings_instance = None
+def vector_dir() -> Path:
+    path = Path(settings.vector_store_dir)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
-def _get_embeddings() -> "HuggingFaceEmbeddings":
-    global _embeddings_instance
-    if _embeddings_instance is None:
-        from langchain_huggingface import HuggingFaceEmbeddings
-        _embeddings_instance = HuggingFaceEmbeddings(
-            model_name=settings.embed_model,
-            model_kwargs={"device": DEVICE},
-            encode_kwargs={"normalize_embeddings": True},
-        )
-    return _embeddings_instance
-
-
-# ── Core service functions ────────────────────────────────────────────────────
-async def process_document(file_path: str, original_filename: str, file_size: int) -> DocumentResponse:
-    """
-    Load a PDF, split it into chunks, embed with sentence-transformers and save to FAISS.
-    All CPU-intensive work runs in a thread pool executor so the async event loop
-    stays free (prevents Fly.io's 60-second gateway timeout / 502 errors).
-    """
-    doc_id = str(uuid.uuid4())
-    store_path = str(VECTOR_DIR / doc_id)
-
-    def _sync_process() -> dict:
-        """Runs entirely in a background thread — no async allowed here."""
-        from langchain_community.document_loaders import PyPDFLoader
-        from langchain_text_splitters import RecursiveCharacterTextSplitter
-        from langchain_community.vectorstores import FAISS
-
-        # 1. Load PDF pages
-        loader = PyPDFLoader(file_path)
-        pages = loader.load()
-        page_count = len(pages)
-
-        # 2. Split into chunks
-        splitter = RecursiveCharacterTextSplitter(
-            chunk_size=settings.chunk_size,
-            chunk_overlap=settings.chunk_overlap,
-        )
-        chunks = splitter.split_documents(pages)
-        chunk_count = len(chunks)
-
-        if not chunks:
-            raise ValueError("No text content could be extracted from this PDF.")
-
-        # 3. Create FAISS vector store in batches to prevent OOM spikes
-        embeddings = _get_embeddings()
-        vector_store = FAISS.from_documents(chunks[:1], embeddings)
-
-        batch_size = 32
-        for i in range(1, len(chunks), batch_size):
-            batch = chunks[i:i + batch_size]
-            vector_store.add_documents(batch)
-
-        # 4. Persist to disk
-        vector_store.save_local(store_path)
-
-        return {
-            "page_count": page_count,
-            "chunk_count": chunk_count,
-        }
-
-    # Offload to thread pool — keeps uvicorn event loop unblocked
-    loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(None, _sync_process)
-
-    # 5. Save document metadata (fast I/O, fine to do in async context)
-    metadata = _load_metadata()
-    doc_record = {
+# ── Records ───────────────────────────────────────────────────────────────────
+def create_document(owner_id: str, filename: str, file_path: Path, size_bytes: int,
+                    doc_id: str | None = None) -> DocumentResponse:
+    doc_id = doc_id or str(uuid.uuid4())
+    record = {
         "id": doc_id,
-        "filename": original_filename,
-        "page_count": result["page_count"],
-        "chunk_count": result["chunk_count"],
+        "owner_id": owner_id,
+        "filename": filename,
+        "size_bytes": size_bytes,
         "uploaded_at": datetime.now(timezone.utc).isoformat(),
-        "size_bytes": file_size,
-        "file_path": file_path,
-        "store_path": store_path,
+        "status": "processing",
+        "stage": "queued",
+        "progress": 0,
+        "file_path": str(file_path),
+        "store_path": str(vector_dir() / doc_id),
+        "embed_model": settings.embed_model,
     }
-    metadata[doc_id] = doc_record
-    _save_metadata(metadata)
-
-    return DocumentResponse(**doc_record)
+    db.insert(record)
+    return DocumentResponse(**record)
 
 
-def list_documents() -> list[DocumentResponse]:
-    metadata = _load_metadata()
-    return [DocumentResponse(**doc) for doc in metadata.values()]
+def list_documents(owner_id: str | None = None) -> list[DocumentResponse]:
+    return [DocumentResponse(**d) for d in db.list_for(owner_id)]
 
 
-def get_document(doc_id: str) -> DocumentResponse | None:
-    metadata = _load_metadata()
-    doc = metadata.get(doc_id)
+def get_document(doc_id: str, owner_id: str | None = None) -> DocumentResponse | None:
+    doc = db.get(doc_id, owner_id)
     return DocumentResponse(**doc) if doc else None
 
 
-def delete_document(doc_id: str) -> bool:
-    metadata = _load_metadata()
-    doc = metadata.get(doc_id)
+def count_documents(owner_id: str) -> int:
+    return db.count_for(owner_id)
+
+
+def delete_document(doc_id: str, owner_id: str | None = None) -> bool:
+    doc = db.get(doc_id, owner_id)
     if not doc:
         return False
-
-    store_path = Path(doc["store_path"])
-    if store_path.exists():
-        shutil.rmtree(store_path)
-
-    file_path = Path(doc["file_path"])
-    if file_path.exists():
-        file_path.unlink()
-
-    del metadata[doc_id]
-    _save_metadata(metadata)
+    _remove_files(doc)
+    db.delete(doc_id)
+    _cache_evict(doc_id)
     return True
 
 
-def load_vector_store(doc_id: str) -> "FAISS" | None:
-    metadata = _load_metadata()
-    doc = metadata.get(doc_id)
+def _remove_files(doc: dict) -> None:
+    store_path = Path(doc["store_path"])
+    if store_path.exists():
+        shutil.rmtree(store_path, ignore_errors=True)
+    if doc.get("file_path"):
+        Path(doc["file_path"]).unlink(missing_ok=True)
+
+
+def cleanup_expired() -> int:
+    """Delete documents older than DOC_TTL_HOURS (public demo housekeeping)."""
+    if settings.doc_ttl_hours <= 0:
+        return 0
+    expired = db.expired(settings.doc_ttl_hours)
+    for doc in expired:
+        _remove_files(doc)
+        db.delete(doc["id"])
+        _cache_evict(doc["id"])
+    if expired:
+        logger.info("Removed %d expired documents", len(expired))
+    return len(expired)
+
+
+# ── PDF parsing ───────────────────────────────────────────────────────────────
+def iter_pdf_pages(file_path: str) -> Iterator[tuple[int, int, str]]:
+    """
+    Yield (page_index, page_total, text) for each page.
+
+    Uses pypdfium2 (Google's PDFium, C++) which is many times faster than the
+    pure-Python pypdf on weak CPUs; falls back to pypdf if it isn't installed.
+    """
+    try:
+        import pypdfium2 as pdfium
+    except ImportError:
+        pdfium = None
+
+    if pdfium is not None:
+        with _pdfium_lock:
+            pdf = pdfium.PdfDocument(file_path)
+            try:
+                total = len(pdf)
+                for i in range(total):
+                    page = pdf[i]
+                    textpage = page.get_textpage()
+                    text = textpage.get_text_range()
+                    textpage.close()
+                    page.close()
+                    yield i, total, text
+            finally:
+                pdf.close()
+        return
+
+    from pypdf import PdfReader
+
+    reader = PdfReader(file_path)
+    total = len(reader.pages)
+    for i, page in enumerate(reader.pages):
+        yield i, total, page.extract_text() or ""
+
+
+# ── Background processing ─────────────────────────────────────────────────────
+def process_document(doc_id: str) -> None:
+    """
+    Parse, chunk, embed and index a PDF. Runs in a worker thread
+    (FastAPI BackgroundTasks) and records progress in the database so the UI
+    can show it. The PDF is deleted afterwards — answers only need the chunks.
+    """
+    doc = db.get(doc_id)
     if not doc:
+        return
+
+    with _processing_lock:
+        try:
+            _process(doc)
+        except Exception as exc:  # noqa: BLE001 — any failure must reach the UI
+            logger.exception("Failed to process document %s", doc_id)
+            shutil.rmtree(doc["store_path"], ignore_errors=True)
+            db.update(doc_id, status="error", stage=None, error=_friendly_error(exc))
+        finally:
+            Path(doc["file_path"]).unlink(missing_ok=True)
+            db.update(doc_id, file_path=None)
+
+
+def _friendly_error(exc: Exception) -> str:
+    if isinstance(exc, ValueError):
+        return str(exc)
+    name = type(exc).__name__
+    if "Pdf" in name or "pdf" in str(exc).lower():
+        return "This file could not be read as a PDF. It may be corrupted or password-protected."
+    return "Something went wrong while processing this PDF."
+
+
+def _process(doc: dict) -> None:
+    from langchain_community.vectorstores import FAISS
+    from langchain_core.documents import Document
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+    doc_id = doc["id"]
+
+    # 1. Read pages
+    db.update(doc_id, stage="reading", progress=0)
+    pages: list[Document] = []
+    total = 0
+    for i, total, text in iter_pdf_pages(doc["file_path"]):
+        if text.strip():
+            pages.append(Document(page_content=text, metadata={"page": i}))
+        if i % 10 == 0 or i == total - 1:
+            db.update(doc_id, progress=int(READ_SHARE * (i + 1) / max(total, 1)))
+
+    # 2. Split
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=settings.chunk_size,
+        chunk_overlap=settings.chunk_overlap,
+    )
+    chunks = splitter.split_documents(pages)
+    if not chunks:
+        raise ValueError(
+            "No text could be extracted from this PDF. "
+            "Scanned/image-only PDFs are not supported yet."
+        )
+    db.update(doc_id, page_count=total, chunk_count=len(chunks), stage="indexing")
+
+    # 3. Embed in batches (bounded memory, visible progress)
+    embeddings = get_embeddings()
+    vector_store = None
+    for start in range(0, len(chunks), EMBED_BATCH_SIZE):
+        batch = chunks[start:start + EMBED_BATCH_SIZE]
+        if vector_store is None:
+            vector_store = FAISS.from_documents(batch, embeddings)
+        else:
+            vector_store.add_documents(batch)
+        done = min(start + EMBED_BATCH_SIZE, len(chunks))
+        db.update(doc_id, progress=READ_SHARE + int((100 - READ_SHARE) * done / len(chunks)))
+
+    # 4. Persist (unless the user deleted the document meanwhile)
+    if db.get(doc_id) is None:
+        return
+    vector_store.save_local(doc["store_path"])
+    db.update(doc_id, status="ready", stage=None, progress=100, error=None)
+
+
+# ── Vector store loading (with a small LRU cache) ────────────────────────────
+_CACHE_SIZE = 4
+_cache: OrderedDict[str, FAISS] = OrderedDict()
+_cache_lock = threading.Lock()
+
+
+def _cache_evict(doc_id: str) -> None:
+    with _cache_lock:
+        _cache.pop(doc_id, None)
+
+
+def load_vector_store(doc_id: str) -> FAISS | None:
+    with _cache_lock:
+        if doc_id in _cache:
+            _cache.move_to_end(doc_id)
+            return _cache[doc_id]
+
+    doc = db.get(doc_id)
+    if not doc or doc["status"] != "ready" or not Path(doc["store_path"]).exists():
         return None
 
-    store_path = doc["store_path"]
-    if not Path(store_path).exists():
-        return None
+    if doc.get("embed_model") and doc["embed_model"] != settings.embed_model:
+        raise ValueError(
+            f"This document was indexed with '{doc['embed_model']}' but the server now uses "
+            f"'{settings.embed_model}'. Please upload it again."
+        )
 
     from langchain_community.vectorstores import FAISS
-    embeddings = _get_embeddings()
-    return FAISS.load_local(store_path, embeddings, allow_dangerous_deserialization=True)
+
+    # Safe: these pickles are written only by this server, never uploaded.
+    store = FAISS.load_local(doc["store_path"], get_embeddings(), allow_dangerous_deserialization=True)
+    with _cache_lock:
+        _cache[doc_id] = store
+        while len(_cache) > _CACHE_SIZE:
+            _cache.popitem(last=False)
+    return store

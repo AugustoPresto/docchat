@@ -1,0 +1,29 @@
+# Render Blueprint — free backend for the public demo.
+# Render dashboard → New → Blueprint → pick this repo.
+# The free plan sleeps after 15 min idle and has no persistent disk:
+# documents live only until the next restart (and at most DOC_TTL_HOURS).
+services:
+  - type: web
+    name: docchat-backend
+    runtime: docker
+    plan: free
+    region: virginia
+    dockerContext: ./backend
+    dockerfilePath: ./backend/Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: "8000"
+      - key: GROQ_API_KEY
+        sync: false            # set in the dashboard
+      - key: ALLOWED_ORIGINS
+        sync: false            # e.g. ["https://docchat.vercel.app"]
+      - key: ISOLATE_CLIENTS
+        value: "true"
+      - key: DOC_TTL_HOURS
+        value: "24"
+      - key: MAX_DOCS_PER_CLIENT
+        value: "5"
+      - key: MAX_UPLOAD_MB
+        value: "20"

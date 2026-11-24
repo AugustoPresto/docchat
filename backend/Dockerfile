@@ -1,19 +1,20 @@
 FROM python:3.11-slim
 
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    EMBED_CACHE_DIR=/app/model_cache
+
 WORKDIR /app
 
-# Install system dependencies for faiss-cpu and pypdf
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc g++ libgomp1 \
+# libgomp1: OpenMP runtime used by faiss-cpu and onnxruntime wheels
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-# Install CPU-only PyTorch first to avoid CUDA dependency bloat and reduce memory usage
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install -r requirements.txt
 
-# Pre-download default CPU embedding model to speed up container startup
-RUN python -c "from langchain_huggingface import HuggingFaceEmbeddings; HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2')"
+# Bake the embedding model into the image: no download at startup, works offline.
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding('sentence-transformers/all-MiniLM-L6-v2', cache_dir='/app/model_cache')"
 
 COPY . .
 
@@ -21,4 +22,6 @@ RUN mkdir -p uploads vector_stores
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "", "--port", "8000"]
+# Host "" = all interfaces, IPv4 and IPv6 (needed for Fly.io's private IPv6 network).
+# PORT is provided by Render/Fly; defaults to 8000.
+CMD ["sh", "-c", "exec uvicorn app.main:app --host '' --port ${PORT:-8000}"]

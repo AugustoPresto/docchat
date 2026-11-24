@@ -1,5 +1,5 @@
-version: "3.9"
-
+# Full offline stack: Ollama (LLM) + FastAPI backend + React frontend.
+# First run needs internet to pull images and the model; afterwards it runs offline.
 services:
   ollama:
     image: ollama/ollama:latest
@@ -7,7 +7,7 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     restart: unless-stopped
-    # Enable GPU if available (comment out if no NVIDIA GPU)
+    # Enable GPU if available (uncomment if you have an NVIDIA GPU)
     # deploy:
     #   resources:
     #     reservations:
@@ -24,7 +24,6 @@ services:
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
       - OLLAMA_CHAT_MODEL=llama3.2:3b
-      - PYTHONUNBUFFERED=1
     volumes:
       - ./backend/uploads:/app/uploads
       - ./backend/vector_stores:/app/vector_stores
@@ -43,4 +42,3 @@ services:
 
 volumes:
   ollama_data:
-
