@@ -22,6 +22,5 @@ RUN mkdir -p uploads vector_stores
 
 EXPOSE 8000
 
-# Host "" = all interfaces, IPv4 and IPv6 (needed for Fly.io's private IPv6 network).
-# PORT is provided by Render/Fly; defaults to 8000.
+# Host "" = all interfaces, IPv4 and IPv6. PORT is provided by the host; defaults to 8000.
 CMD ["sh", "-c", "exec uvicorn app.main:app --host '' --port ${PORT:-8000}"]

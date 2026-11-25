@@ -22,7 +22,7 @@ DocChat is a full-stack **RAG (Retrieval-Augmented Generation)** application tha
 - ⏳ **Background indexing** — upload returns at once; live progress per document
 - ⌨️ **Streaming answers** — text appears as the model writes it (with a Stop button)
 - 🙋 **No login** — each browser gets an anonymous id; on the demo you only see your own files
-- ☁️ **Free cloud deployment** — Vercel + Render + Groq
+- ☁️ **Free cloud deployment** — one Render service (frontend + API) + Groq
 - ⚡ **Fast React UI** — dark mode, drag & drop, auto-scroll
 - 🐳 **Docker Compose** for one-command local setup
 - 🖥️ **Optional GPU** — CUDA/MPS embeddings via the `sentence-transformers` backend
@@ -73,16 +73,15 @@ User (Browser)
               └────────────────────────────┘
 ```
 
-### Cloud mode (free: Vercel + Render + Groq)
+### Cloud mode (free: Render + Groq)
 
 ```
 User (no login, anonymous X-Client-Id)
- │ HTTPS
+ │ HTTPS — one URL
  ▼
-[Vercel]  static React build
- │ HTTPS (CORS)
- ▼
-[Render free web service]  FastAPI + FastEmbed + FAISS (Docker, 512 MB)
+[Render free web service]  Docker, 512 MB
+ │   FastAPI serves the React build (/) and the API (/api/v1, /health)
+ │   FastEmbed + FAISS + BM25
  │   ephemeral disk: documents expire after DOC_TTL_HOURS or on restart
  │
  └── Groq API (llama-3.1-8b-instant)  ← cloud LLM
@@ -203,32 +202,32 @@ Open **http://localhost:5173**
 
 ---
 
-## ☁️ Free Cloud Deployment (Vercel + Render + Groq)
+## ☁️ Free Cloud Deployment (Render + Groq)
 
-Every service below has a free tier that covers this setup.
+The whole app (React frontend + FastAPI API) runs as **one free Render web service**, built from the
+root [`Dockerfile`](Dockerfile): FastAPI serves the compiled frontend, so there is one URL and no CORS
+setup. No credit card is needed for Render or Groq.
 
-### 1. Groq API key
-Create a free key at [console.groq.com](https://console.groq.com).
+1. **Groq API key:** create a free key at [console.groq.com](https://console.groq.com/keys).
+2. **Render:** dashboard → **New → Blueprint** → connect GitHub → select this repository.
+   Render reads [`render.yaml`](render.yaml) and asks for `GROQ_API_KEY`. Paste the key and click **Apply**.
+3. Wait for the first build (~5 min). The app is at `https://docchat-XXXX.onrender.com`.
+   Every push to the default branch redeploys it.
 
-### 2. Backend on Render
-1. Render dashboard → **New → Blueprint** → select this repository (uses [`render.yaml`](render.yaml)).
-2. Fill the secret env vars: `GROQ_API_KEY` and `ALLOWED_ORIGINS` (JSON list with your Vercel URL, e.g. `["https://docchat.vercel.app"]`).
-3. Note the service URL, e.g. `https://docchat-backend.onrender.com`.
+The blueprint enables the demo protections: `ISOLATE_CLIENTS=true` (each browser sees only its own
+documents, no login), `DOC_TTL_HOURS=24`, `MAX_DOCS_PER_CLIENT=5`, `MAX_UPLOAD_MB=20`.
 
-The blueprint enables the demo protections: `ISOLATE_CLIENTS=true` (each browser sees only its own documents, no login),
-`DOC_TTL_HOURS=24`, `MAX_DOCS_PER_CLIENT=5`, `MAX_UPLOAD_MB=20`.
+**What to expect on the free plan** (512 MB RAM, 0.1 CPU; measured locally with the same limits):
 
-> Free Render services sleep after 15 min without traffic (the next visit waits ~1 min — the UI says
-> "Waking up server") and have no persistent disk, so uploaded documents are temporary. That's fine for a demo.
+- Sleeps after 15 min without visits; the next visit waits ~1 min while Render wakes it up.
+- Idle memory ~60 MB, ~275 MB while indexing.
+- Indexing is CPU-bound: about **7 s per page** at 0.1 CPU (a 33-page article took ~4 min; on a
+  4-core laptop, 6 s). Short PDFs (≤ 10–15 pages) make the best demo. Answers come from Groq, so chat
+  stays fast.
+- No persistent disk: uploaded documents are temporary.
 
-### 3. Frontend on Vercel
-1. **Add New → Project** → import this repository, **Root Directory** = `frontend` (Vite is auto-detected).
-2. Environment variable: `VITE_API_URL=https://<your-render-service>.onrender.com/api/v1`.
-3. Deploy. Put the Vercel URL in the backend's `ALLOWED_ORIGINS`.
-
-### Alternative: Fly.io (paid)
-`backend/fly.toml` and `frontend/fly.toml` still work (`flyctl deploy` in each folder), but Fly.io no longer
-has a free allowance: the VM and the `/data` volume are billed even while suspended.
+> **Alternative:** frontend on Vercel (Root Directory `frontend`, `VITE_API_URL=https://<api>/api/v1`)
+> + backend only (`backend/Dockerfile`, set `ALLOWED_ORIGINS` to the Vercel URL).
 
 **LLM priority:** Groq → OpenAI → Ollama (local fallback)
 
@@ -260,8 +259,7 @@ docchat/
 │   ├── requirements.txt             # Python dependencies (CPU, no PyTorch)
 │   ├── requirements-gpu.txt         # Optional PyTorch/GPU embeddings
 │   ├── requirements-dev.txt         # pytest + ruff
-│   ├── Dockerfile                   # Backend container image
-│   └── fly.toml                     # Fly.io config (backend)
+│   └── Dockerfile                   # Backend image (docker-compose)
 ├── frontend/
 │   ├── src/
 │   │   ├── App.jsx                  # Root component + global state
@@ -276,9 +274,9 @@ docchat/
 │   ├── nginx.conf                   # Reverse proxy config (production)
 │   ├── vite.config.js               # Dev server config + API proxy
 │   ├── vercel.json                  # SPA routing for Vercel deployments
-│   ├── Dockerfile                   # Multi-stage image: build + nginx serve
-│   └── fly.toml                     # Fly.io config (frontend)
-├── render.yaml                      # Render blueprint (free backend)
+│   └── Dockerfile                   # nginx image (docker-compose)
+├── Dockerfile                       # Single-service image: API + built frontend (Render)
+├── render.yaml                      # Render blueprint (free, one service)
 ├── docker-compose.yml               # Full local stack: Ollama + backend + frontend
 └── .github/workflows/ci.yml         # CI: lint + build on every push
 ```
@@ -309,7 +307,9 @@ All settings live in `backend/.env` (copy from `.env.example`):
 | `ISOLATE_CLIENTS` | `false` | Per-browser documents (public demo, no login) |
 | `DOC_TTL_HOURS` | `0` | Auto-delete documents after N hours (0 = never) |
 | `MAX_DOCS_PER_CLIENT` | `0` | Per-browser document limit (0 = unlimited) |
-| `ALLOWED_ORIGINS` | localhost | CORS origins, JSON list |
+| `ALLOWED_ORIGINS` | localhost | CORS origins, JSON list (only when the frontend is on another domain) |
+| `EMBED_THREADS` | one per core | Embedding threads; set `1` on fractional-CPU hosts (Render free) |
+| `STATIC_DIR` | — | Built frontend folder; when set, the API also serves the web app |
 
 ---
 
@@ -338,7 +338,7 @@ Tests run fully offline (fake embeddings and LLM) — no Ollama or model downloa
 | **PDF parsing** | pypdfium2 (PDFium), pypdf fallback |
 | **Metadata** | SQLite |
 | **Serving** | Docker, Docker Compose, Nginx |
-| **Cloud** | Vercel (frontend) + Render (backend), free tiers |
+| **Cloud** | Render free web service (frontend + API in one Docker image) + Groq |
 | **CI** | GitHub Actions |
 
 ---

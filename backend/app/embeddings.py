@@ -43,4 +43,5 @@ def _build() -> Embeddings:
         # 4-core laptop, batch 4 peaked at ~250MB vs ~700MB with 32, at the
         # same (or better) speed. Matters for 512MB free hosts and weak PCs.
         batch_size=4,
+        threads=settings.embed_threads,
     )

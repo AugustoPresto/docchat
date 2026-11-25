@@ -8,14 +8,11 @@ which keeps startup fast and memory low on weak machines and small VMs.
 Priority: CUDA (NVIDIA) > MPS (Apple Silicon) > CPU
 """
 import logging
-import os
 
 logger = logging.getLogger(__name__)
 
 
 def _torch_enabled() -> bool:
-    if os.getenv("FLY_APP_NAME"):
-        return False
     from app.config import settings
     return settings.embed_backend == "sentence-transformers"
 

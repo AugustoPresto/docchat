@@ -69,7 +69,8 @@ def test_device_info_does_not_need_torch_with_fastembed(monkeypatch):
 
 
 def test_device_cuda_simulated(monkeypatch):
-    pytest.importorskip("torch")
+    # torch.cuda, not just torch: a half-removed torch leaves an empty namespace package.
+    pytest.importorskip("torch.cuda")
     from app.device import get_device_info
     monkeypatch.setattr(settings, "embed_backend", "sentence-transformers")
     props = type("Props", (), {"name": "NVIDIA RTX", "total_memory": 24 * 10**9})()
@@ -317,3 +318,41 @@ def test_chat_stream_reports_llm_failure(client, monkeypatch, sample_pdf):
     assert events[-1]["type"] == "error"
     assert "Ollama" in events[-1]["detail"]
     assert "ollama down" not in events[-1]["detail"]
+
+
+# ── Single-service deploy: backend also serves the built frontend ────────────
+
+@pytest.fixture
+def static_site(tmp_path, monkeypatch):
+    site = tmp_path / "dist"
+    (site / "assets").mkdir(parents=True)
+    (site / "index.html").write_text("<html>DocChat SPA</html>")
+    (site / "assets" / "app-123.js").write_text("console.log('hi')")
+    monkeypatch.setattr(settings, "static_dir", str(site))
+    (tmp_path / "secret.txt").write_text("nope")
+    return site
+
+
+def test_frontend_is_served_when_static_dir_is_set(client, static_site):
+    assert "DocChat SPA" in client.get("/").text
+    asset = client.get("/assets/app-123.js")
+    assert asset.status_code == 200
+    assert "immutable" in asset.headers["cache-control"]
+    # SPA fallback for client-side routes
+    assert "DocChat SPA" in client.get("/some/page").text
+
+
+def test_frontend_does_not_hide_api_routes(client, static_site):
+    assert client.get("/health").json()["status"] == "ok"
+    assert client.get("/api/v1/documents/").json()["total"] == 0
+    assert client.get("/api/v1/nope").status_code == 404
+    assert client.get("/docs").status_code == 200
+
+
+def test_frontend_blocks_path_traversal(client, static_site):
+    response = client.get("/..%2Fsecret.txt")
+    assert "nope" not in response.text
+
+
+def test_without_static_dir_unknown_paths_are_404(client):
+    assert client.get("/whatever").status_code == 404

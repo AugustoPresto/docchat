@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     embed_model_gpu: str = "sentence-transformers/all-mpnet-base-v2"
     # Where downloaded embedding models are kept, so later runs work offline.
     embed_cache_dir: str = "model_cache"
+    # ONNX Runtime threads for embeddings (None = one per CPU core). Set to 1 on
+    # hosts with a fraction of a CPU (e.g. Render free, 0.1 CPU): containers see all
+    # of the host's cores, and many threads fighting for 0.1 CPU are much slower.
+    embed_threads: int | None = None
 
     # Storage paths (relative to backend dir)
     upload_dir: str = "uploads"
@@ -57,6 +61,10 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ]
+
+    # Folder with the built React app (frontend/dist). When set, the backend also
+    # serves the frontend, so one service/URL hosts the whole app (no CORS needed).
+    static_dir: str | None = None
 
     model_config = ConfigDict(env_file=".env")
 
