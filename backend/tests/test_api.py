@@ -356,3 +356,20 @@ def test_frontend_blocks_path_traversal(client, static_site):
 
 def test_without_static_dir_unknown_paths_are_404(client):
     assert client.get("/whatever").status_code == 404
+
+
+# ── LLM provider ─────────────────────────────────────────────────────────────
+
+def test_groq_defaults_to_supported_model_with_short_reasoning(monkeypatch):
+    from app.services import chat_service
+    monkeypatch.setattr(settings, "groq_api_key", "gsk_test")
+    llm = chat_service._get_llm()
+    assert llm.model_name == "openai/gpt-oss-20b"  # llama-3.1-8b-instant was retired
+    assert llm.extra_body == {"reasoning_effort": "low", "include_reasoning": False}
+
+
+def test_groq_non_reasoning_model_gets_no_reasoning_params(monkeypatch):
+    from app.services import chat_service
+    monkeypatch.setattr(settings, "groq_api_key", "gsk_test")
+    monkeypatch.setattr(settings, "groq_chat_model", "some-llama-model")
+    assert not chat_service._get_llm().extra_body

@@ -11,7 +11,11 @@ class Settings(BaseSettings):
 
     # Cloud LLM settings (used when a key is provided)
     groq_api_key: str | None = None
-    groq_chat_model: str = "llama-3.1-8b-instant"
+    # llama-3.1-8b-instant was retired by Groq on 2026-08-16; gpt-oss-20b is its
+    # recommended replacement (free tier).
+    groq_chat_model: str = "openai/gpt-oss-20b"
+    # Reasoning models only (gpt-oss): "low" keeps answers fast for document Q&A.
+    groq_reasoning_effort: Literal["low", "medium", "high"] = "low"
     openai_api_key: str | None = None
     openai_chat_model: str = "gpt-4o-mini"
 
