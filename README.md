@@ -4,7 +4,8 @@
 
 DocChat is a full-stack **RAG (Retrieval-Augmented Generation)** application that lets you upload any PDF and ask questions about it in natural language. It works fully locally with Ollama (private, no API keys) or in the cloud via Groq/OpenAI.
 
-🔗 **Live demo:** _(no login — just open it and drop a PDF; the free server may take ~1 min to wake up)_
+🔗 **Live demo: [docchat-2byq.onrender.com](https://docchat-2byq.onrender.com/)** — no login, just open it and drop a PDF.
+_Free server: the first visit may take ~1 min to wake up, and short PDFs (≤ 15 pages) index fastest._
 
 ![CI](https://github.com/AugustoPresto/docchat/actions/workflows/ci.yml/badge.svg)
 
@@ -69,7 +70,7 @@ User (Browser)
               ┌────────────────────────────┐
               │  Ollama / Groq / OpenAI    │
               │  llama3.2:3b (local) or   │
-              │  llama-3.1-8b-instant (☁️) │
+              │  gpt-oss-20b (☁️)          │
               └────────────────────────────┘
 ```
 
@@ -84,7 +85,7 @@ User (no login, anonymous X-Client-Id)
  │   FastEmbed + FAISS + BM25
  │   ephemeral disk: documents expire after DOC_TTL_HOURS or on restart
  │
- └── Groq API (llama-3.1-8b-instant)  ← cloud LLM
+ └── Groq API (openai/gpt-oss-20b)  ← cloud LLM
 ```
 
 ### How RAG works (step by step)
@@ -292,7 +293,8 @@ All settings live in `backend/.env` (copy from `.env.example`):
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
 | `OLLAMA_CHAT_MODEL` | `llama3.2:3b` | Local chat model |
 | `GROQ_API_KEY` | _(none)_ | Enables Groq cloud mode |
-| `GROQ_CHAT_MODEL` | `llama-3.1-8b-instant` | Groq model |
+| `GROQ_CHAT_MODEL` | `openai/gpt-oss-20b` | Groq model |
+| `GROQ_REASONING_EFFORT` | `low` | Reasoning effort for gpt-oss models (`low` / `medium` / `high`) |
 | `OPENAI_API_KEY` | _(none)_ | Enables OpenAI fallback |
 | `OPENAI_CHAT_MODEL` | `gpt-4o-mini` | OpenAI model |
 | `EMBED_BACKEND` | `fastembed` | `fastembed` (CPU/ONNX) or `sentence-transformers` (GPU) |
@@ -334,7 +336,7 @@ Tests run fully offline (fake embeddings and LLM) — no Ollama or model downloa
 | **Embeddings** | FastEmbed / ONNX (`all-MiniLM-L6-v2`); optional sentence-transformers on GPU |
 | **AI / RAG** | LangChain LCEL, FAISS-CPU, BM25 hybrid search |
 | **LLM (local)** | Ollama (`llama3.2:3b`) |
-| **LLM (cloud)** | Groq (`llama-3.1-8b-instant`) |
+| **LLM (cloud)** | Groq (`openai/gpt-oss-20b`) |
 | **PDF parsing** | pypdfium2 (PDFium), pypdf fallback |
 | **Metadata** | SQLite |
 | **Serving** | Docker, Docker Compose, Nginx |

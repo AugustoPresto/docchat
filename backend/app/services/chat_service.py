@@ -15,11 +15,17 @@ def _get_llm():
     provider, model = get_provider()
     if provider == "groq":
         from langchain_openai import ChatOpenAI
+        extra = {}
+        if model.startswith("openai/gpt-oss"):
+            # Reasoning model: keep thinking short and don't send it back
+            # (Groq returns it in a separate field we never show).
+            extra = {"reasoning_effort": settings.groq_reasoning_effort, "include_reasoning": False}
         return ChatOpenAI(
             base_url="https://api.groq.com/openai/v1",
             api_key=settings.groq_api_key,
             model=model,
             temperature=0.1,
+            extra_body=extra or None,
         )
     if provider == "openai":
         from langchain_openai import ChatOpenAI
