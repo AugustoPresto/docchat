@@ -1,18 +1,15 @@
 import ReactMarkdown from 'react-markdown';
 
 function formatTime(date) {
-  return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 
-function TypingIndicator() {
+function TypingDots() {
   return (
-    <div className="message assistant">
-      <div className="message-avatar">🤖</div>
-      <div className="typing-indicator">
-        <div className="typing-dot" />
-        <div className="typing-dot" />
-        <div className="typing-dot" />
-      </div>
+    <div className="typing-indicator">
+      <div className="typing-dot" />
+      <div className="typing-dot" />
+      <div className="typing-dot" />
     </div>
   );
 }
@@ -20,41 +17,40 @@ function TypingIndicator() {
 function Sources({ sources }) {
   if (!sources?.length) return null;
   return (
-    <div className="sources">
-      <div className="sources-label">📚 Sources</div>
+    <details className="sources">
+      <summary className="sources-label">📚 Sources ({sources.length})</summary>
       {sources.map((src, i) => (
         <div key={i} className="source-item">
           <div className="source-page">Page {src.page}</div>
-          <div>"{src.content}…"</div>
+          <div>&ldquo;{src.content}…&rdquo;</div>
         </div>
       ))}
-    </div>
+    </details>
   );
 }
 
-export default function Message({ message, isTyping }) {
-  if (isTyping) return <TypingIndicator />;
-
-  const { role, content, sources, timestamp } = message;
+export default function Message({ message }) {
+  const { role, content, sources, timestamp, streaming } = message;
   const isUser = role === 'user';
 
-  return (
-    <div className={`message ${role}`} id={`msg-${timestamp}`}>
-      <div className="message-avatar">
-        {isUser ? '👤' : '🤖'}
+  if (!isUser && streaming && !content) {
+    return (
+      <div className="message assistant">
+        <div className="message-avatar">🤖</div>
+        <TypingDots />
       </div>
+    );
+  }
+
+  return (
+    <div className={`message ${role}`}>
+      <div className="message-avatar">{isUser ? '👤' : '🤖'}</div>
       <div className="message-bubble">
         <div className="message-content">
-          {isUser ? (
-            <p>{content}</p>
-          ) : (
-            <ReactMarkdown>{content}</ReactMarkdown>
-          )}
+          {isUser ? <p>{content}</p> : <ReactMarkdown>{content}</ReactMarkdown>}
         </div>
-        {!isUser && <Sources sources={sources} />}
-        <div className="message-time">
-          {formatTime(new Date(timestamp))}
-        </div>
+        {!isUser && !streaming && <Sources sources={sources} />}
+        <div className="message-time">{formatTime(new Date(timestamp))}</div>
       </div>
     </div>
   );

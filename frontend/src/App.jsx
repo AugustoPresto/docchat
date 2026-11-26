@@ -1,8 +1,12 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
 import { listDocuments, checkHealth } from './services/api';
 import { Menu } from 'lucide-react';
+
+const PROCESSING_POLL_MS = 1500;
+const HEALTH_RETRY_MS = 10000;
+const HEALTH_STALE_MS = 5 * 60 * 1000;
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
 function ToastContainer({ toasts }) {
@@ -20,6 +24,7 @@ function ToastContainer({ toasts }) {
 // ── Empty state ───────────────────────────────────────────────────────────────
 function EmptyState({ health }) {
   const isCloud = health?.provider === 'groq' || health?.provider === 'openai';
+  const maxMb = health?.max_upload_mb;
 
   return (
     <div className="empty-state">
@@ -29,19 +34,24 @@ function EmptyState({ health }) {
         Upload any PDF and ask questions in plain language.
         The AI reads the document and answers using only its content —
         {isCloud ? (
-          <strong> private, secure, and fast.</strong>
+          <strong> no sign-up needed, just drop a PDF.</strong>
         ) : (
-          <strong> everything runs locally on your machine.</strong>
+          <strong> everything runs locally on your machine, even offline.</strong>
         )}
       </p>
       <div className="feature-chips">
         {(isCloud
-          ? ['🔒 100% secure', `☁️ Powered by ${health?.provider?.toUpperCase()}`, '🔍 RAG-based search', '📄 Max 100MB PDF']
-          : ['🔒 100% private', '🦙 Powered by Ollama', '🔍 RAG-based search', '📄 Any PDF']
+          ? ['🙋 No login', `☁️ Powered by ${health?.provider?.toUpperCase()}`, '🔍 RAG-based search', `📄 PDF up to ${maxMb ?? '?'}MB`]
+          : ['🔒 100% private', '🦙 Powered by Ollama', '📴 Works offline', '🔍 RAG-based search']
         ).map((f) => (
           <div key={f} className="chip">{f}</div>
         ))}
       </div>
+      {isCloud && health?.doc_ttl_hours > 0 && (
+        <p className="empty-state-note">
+          Demo server: your documents are private to this browser and deleted after {health.doc_ttl_hours}h.
+        </p>
+      )}
     </div>
   );
 }
@@ -53,58 +63,100 @@ export default function App() {
   const [toasts, setToasts] = useState([]);
   const [health, setHealth] = useState(null);
   const [healthStatus, setHealthStatus] = useState('loading');
+  const [slowStart, setSlowStart] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  // Document to open automatically once its background indexing finishes
+  const pendingOpenId = useRef(null);
 
-  // Poll health status and load documents once online
+  // Toast helper
+  const addToast = useCallback((type, message) => {
+    const id = `${Date.now()}-${Math.random()}`;
+    setToasts((prev) => [...prev, { id, type, message }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 5000);
+  }, []);
+
+  // Health: check on load, retry while offline, re-check when the tab comes
+  // back after a while. No continuous polling — that would keep a free
+  // server awake (and billed) for as long as a tab is open.
   useEffect(() => {
     let active = true;
-    let timeoutId;
+    let retryId;
+    let lastOk = 0;
+    const slowId = setTimeout(() => active && setSlowStart(true), 5000);
 
     const performCheck = () => {
       checkHealth()
         .then((data) => {
           if (!active) return;
+          lastOk = Date.now();
           setHealth(data);
           setHealthStatus('ok');
-
-          // Backend is awake, load/refresh the documents list
+          setSlowStart(false);
+          clearTimeout(slowId);
           listDocuments()
-            .then((docData) => {
-              if (active) setDocuments(docData.documents);
-            })
-            .catch(() => {/* ignore transient failures */});
-
-          // Poll less frequently (60s) once successfully connected
-          timeoutId = setTimeout(performCheck, 60000);
+            .then((docData) => active && setDocuments(docData.documents))
+            .catch(() => {/* shown as empty list; retried on next check */});
         })
         .catch(() => {
           if (!active) return;
           setHealthStatus('error');
-          // Retry every 15 seconds until the backend wakes up
-          timeoutId = setTimeout(performCheck, 15000);
+          retryId = setTimeout(performCheck, HEALTH_RETRY_MS);
         });
     };
 
-    performCheck();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && Date.now() - lastOk > HEALTH_STALE_MS) {
+        clearTimeout(retryId);
+        performCheck();
+      }
+    };
 
+    performCheck();
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       active = false;
-      clearTimeout(timeoutId);
+      clearTimeout(retryId);
+      clearTimeout(slowId);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, []);
 
-  // Toast helper
-  const addToast = useCallback((type, message) => {
-    const id = Date.now();
-    setToasts((prev) => [...prev, { id, type, message }]);
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
-  }, []);
+  // While any document is being indexed, poll the list for progress.
+  const hasProcessing = documents.some((d) => d.status === 'processing');
+  useEffect(() => {
+    if (!hasProcessing) return undefined;
+    const id = setTimeout(async () => {
+      let fresh;
+      try {
+        ({ documents: fresh } = await listDocuments());
+      } catch {
+        // Transient failure: a new array re-runs this effect, i.e. retries.
+        setDocuments((prev) => [...prev]);
+        return;
+      }
+      documents.forEach((old) => {
+        if (old.status !== 'processing') return;
+        const now = fresh.find((d) => d.id === old.id);
+        if (now?.status === 'ready') {
+          addToast('success', `✅ "${now.filename}" indexed — ${now.chunk_count} chunks ready`);
+          if (pendingOpenId.current === now.id) {
+            pendingOpenId.current = null;
+            setActiveDoc(now);
+            setIsSidebarOpen(false);
+          }
+        } else if (now?.status === 'error') {
+          addToast('error', `❌ "${now.filename}": ${now.error}`);
+        }
+      });
+      setDocuments(fresh);
+    }, PROCESSING_POLL_MS);
+    return () => clearTimeout(id);
+  }, [documents, hasProcessing, addToast]);
 
   // Handlers
   const handleUploaded = (doc) => {
     setDocuments((prev) => [doc, ...prev]);
-    setActiveDoc(doc);
-    setIsSidebarOpen(false);
+    pendingOpenId.current = doc.id;
   };
 
   const handleDeleted = (docId) => {
@@ -130,6 +182,7 @@ export default function App() {
         onToast={addToast}
         health={health}
         healthStatus={healthStatus}
+        slowStart={slowStart}
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
       />
@@ -143,14 +196,14 @@ export default function App() {
             onToggleSidebar={() => setIsSidebarOpen(true)}
           />
         ) : (
-          <div style={{ position: 'relative', display: 'flex', flex: 1, flexDirection: 'column', height: '100%' }}>
+          <div className="empty-wrapper">
             <div className="mobile-header">
               <button className="mobile-menu-btn" onClick={() => setIsSidebarOpen(true)} aria-label="Open menu">
                 <Menu size={20} />
               </button>
-              <div className="logo" style={{ marginBottom: 0 }}>
-                <div className="logo-icon" style={{ width: '28px', height: '28px', fontSize: '13px' }}>💬</div>
-                <span className="logo-text" style={{ fontSize: '15px' }}>DocChat</span>
+              <div className="logo logo-compact">
+                <div className="logo-icon">💬</div>
+                <span className="logo-text">DocChat</span>
               </div>
             </div>
             <EmptyState health={health} />
@@ -162,4 +215,3 @@ export default function App() {
     </div>
   );
 }
-

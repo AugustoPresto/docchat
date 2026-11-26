@@ -1,0 +1,19 @@
+# Build context for the root Dockerfile (single-service image)
+.git
+.github
+.claude
+**/.env
+**/.env.local
+**/node_modules
+frontend/dist
+backend/.venv
+backend/venv
+backend/uploads
+backend/vector_stores
+backend/model_cache
+backend/tests
+backend/documents_metadata.json
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/*.pyc

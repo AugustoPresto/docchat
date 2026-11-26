@@ -2,27 +2,32 @@ import { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { uploadDocument } from '../services/api';
 
-export default function DocumentUpload({ onUploaded, onToast, isCloud }) {
+export default function DocumentUpload({ onUploaded, onToast, maxMb }) {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [filename, setFilename] = useState('');
-  const [status, setStatus] = useState('');
 
-  const onDrop = useCallback(async (acceptedFiles) => {
+  const onDrop = useCallback(async (acceptedFiles, rejected) => {
+    if (rejected?.length) {
+      onToast('error', '❌ Only PDF files are supported.');
+      return;
+    }
     const file = acceptedFiles[0];
     if (!file) return;
+
+    if (maxMb && file.size > maxMb * 1024 * 1024) {
+      onToast('error', `❌ "${file.name}" is larger than ${maxMb} MB.`);
+      return;
+    }
 
     setFilename(file.name);
     setUploading(true);
     setProgress(0);
-    setStatus('Uploading...');
 
     try {
-      const doc = await uploadDocument(file, (pct) => {
-        setProgress(pct);
-        if (pct === 100) setStatus('Processing with AI (this may take a minute)...');
-      });
-      onToast('success', `✅ "${doc.filename}" indexed — ${doc.chunk_count} chunks ready`);
+      // The server answers as soon as the file is saved; indexing progress
+      // is then shown in the document list.
+      const doc = await uploadDocument(file, setProgress);
       onUploaded(doc);
     } catch (err) {
       const msg = err.response?.data?.detail || err.message;
@@ -31,9 +36,8 @@ export default function DocumentUpload({ onUploaded, onToast, isCloud }) {
       setUploading(false);
       setProgress(0);
       setFilename('');
-      setStatus('');
     }
-  }, [onUploaded, onToast]);
+  }, [onUploaded, onToast, maxMb]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -47,12 +51,9 @@ export default function DocumentUpload({ onUploaded, onToast, isCloud }) {
       <div className="upload-progress">
         <div className="progress-filename">📄 {filename}</div>
         <div className="progress-bar-track">
-          <div
-            className="progress-bar-fill"
-            style={{ width: `${progress === 100 ? 100 : Math.max(progress, 5)}%` }}
-          />
+          <div className="progress-bar-fill" style={{ width: `${Math.max(progress, 5)}%` }} />
         </div>
-        <div className="progress-status">{status}</div>
+        <div className="progress-status">Uploading… {progress}%</div>
       </div>
     );
   }
@@ -70,7 +71,7 @@ export default function DocumentUpload({ onUploaded, onToast, isCloud }) {
       </div>
       <div className="upload-subtitle">Drag & drop or click to browse</div>
       <div className="upload-hint">
-        PDF files only{isCloud ? ' (max 100MB)' : ''}
+        PDF files only{maxMb ? ` (max ${maxMb}MB)` : ''}
       </div>
     </div>
   );

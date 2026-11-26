@@ -1,0 +1,5 @@
+# Optional: PyTorch embeddings with CUDA / Apple MPS auto-detection.
+# Use with EMBED_BACKEND=sentence-transformers in backend/.env
+-r requirements.txt
+sentence-transformers>=3.0
+langchain-huggingface>=0.1

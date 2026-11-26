@@ -13,9 +13,9 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
 
-# At runtime, replace placeholders with real upstream URLs from env vars.
-# BACKEND_URL  → internal Fly.io URL for API calls (e.g. http://docchat-backend.internal:8000/api/)
-# PUBLIC_BACKEND_URL → public HTTPS URL for health check (e.g. https://docchat-backend.fly.dev)
+# At runtime, replace placeholders with the backend URLs (defaults fit docker-compose).
+# BACKEND_URL        → API upstream, e.g. http://backend:8000/api/
+# PUBLIC_BACKEND_URL → base URL for /health, e.g. http://backend:8000
 CMD ["sh", "-c", \
   "BACKEND=${BACKEND_URL:-http://backend:8000/api/} && \
    HEALTH=${PUBLIC_BACKEND_URL:-http://backend:8000}/health && \

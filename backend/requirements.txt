@@ -1,23 +1,22 @@
-fastapi>=0.111.0
-uvicorn[standard]>=0.30.0
-pydantic-settings>=2.3.0
+# Web
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30
+pydantic-settings>=2.3,<3
 python-multipart>=0.0.9
 
-# LangChain ecosystem (v1.x LCEL API)
-langchain>=1.0.0
-langchain-community>=0.4.0
-langchain-ollama>=1.0.0
-langchain-openai>=0.1.0
-langchain-text-splitters>=0.3.0
-langchain-core>=0.3.0
-langchain-huggingface>=0.1.0
+# LangChain (LCEL)
+langchain-core>=0.3
+langchain-community>=0.3
+langchain-text-splitters>=0.3
+langchain-ollama>=0.2
+langchain-openai>=0.2
 
+# Embeddings — ONNX runtime on CPU, no PyTorch (works offline once cached)
+fastembed>=0.4
 
-# Local embeddings — fast CPU inference, no Ollama required for embedding
-sentence-transformers>=3.0.0
-
-# PDF parsing
-pypdf>=4.2.0
+# PDF parsing — pypdfium2 (fast, C++) with pypdf as fallback
+pypdfium2>=4.30
+pypdf>=4.2
 
 # Vector store
-faiss-cpu>=1.8.0
+faiss-cpu>=1.8

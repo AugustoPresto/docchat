@@ -9,3 +9,6 @@ vector_stores
 .git
 .github
 .gitignore
+model_cache
+.env
+tests

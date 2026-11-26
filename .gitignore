@@ -31,3 +31,7 @@ Thumbs.db
 
 # Docker
 *.log
+
+# Cached embedding models
+backend/model_cache/
+backend/documents_metadata.json.migrated
