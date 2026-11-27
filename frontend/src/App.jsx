@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
-import { listDocuments, checkHealth } from './services/api';
+import { listDocuments, checkHealth, onServerReachability } from './services/api';
 import { Menu } from 'lucide-react';
 
 const PROCESSING_POLL_MS = 1500;
@@ -82,27 +82,52 @@ export default function App() {
     let active = true;
     let retryId;
     let lastOk = 0;
+    let checkSeq = 0; // only the newest check may update the status
+    let haveHealth = false;
     const slowId = setTimeout(() => active && setSlowStart(true), 5000);
 
+    const markOnline = () => {
+      lastOk = Date.now();
+      clearTimeout(retryId);
+      setHealthStatus('ok');
+      setSlowStart(false);
+      clearTimeout(slowId);
+    };
+
     const performCheck = () => {
+      const seq = ++checkSeq;
       checkHealth()
         .then((data) => {
-          if (!active) return;
-          lastOk = Date.now();
+          if (!active || seq !== checkSeq) return;
+          haveHealth = true;
           setHealth(data);
-          setHealthStatus('ok');
-          setSlowStart(false);
-          clearTimeout(slowId);
+          markOnline();
           listDocuments()
             .then((docData) => active && setDocuments(docData.documents))
             .catch(() => {/* shown as empty list; retried on next check */});
         })
         .catch(() => {
-          if (!active) return;
+          // A newer check (or a successful request) already decided the status.
+          if (!active || seq !== checkSeq || Date.now() - lastOk < HEALTH_RETRY_MS) return;
           setHealthStatus('error');
+          clearTimeout(retryId);
           retryId = setTimeout(performCheck, HEALTH_RETRY_MS);
         });
     };
+
+    // Real traffic (documents, chat) also proves whether the server is up.
+    const stopListening = onServerReachability((reachable) => {
+      if (!active) return;
+      if (reachable) {
+        checkSeq += 1; // a slow /health still in flight must not flip us to offline
+        markOnline();
+        if (!haveHealth) performCheck(); // first contact: fetch provider info
+      } else {
+        setHealthStatus('error');
+        clearTimeout(retryId);
+        retryId = setTimeout(performCheck, HEALTH_RETRY_MS);
+      }
+    });
 
     const onVisible = () => {
       if (document.visibilityState === 'visible' && Date.now() - lastOk > HEALTH_STALE_MS) {
@@ -117,6 +142,7 @@ export default function App() {
       active = false;
       clearTimeout(retryId);
       clearTimeout(slowId);
+      stopListening();
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, []);

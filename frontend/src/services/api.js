@@ -28,6 +28,21 @@ function getClientId() {
 
 const clientHeaders = () => ({ 'X-Client-Id': getClientId() });
 
+// ── Server reachability ───────────────────────────────────────────────────────
+// Every real request tells the UI whether the server answered, so the status
+// badge follows what the user actually experiences (e.g. a chat that works
+// means the server is online), not just the occasional /health check.
+const reachabilityListeners = new Set();
+export const onServerReachability = (listener) => {
+  reachabilityListeners.add(listener);
+  return () => reachabilityListeners.delete(listener);
+};
+const reportReachable = (reachable) => reachabilityListeners.forEach((fn) => fn(reachable));
+
+// No response at all, or the host's proxy saying the app isn't up (cold start, deploy).
+const GATEWAY_ERRORS = [502, 503, 504];
+const isUnreachable = (error) => !error.response || GATEWAY_ERRORS.includes(error.response.status);
+
 const api = axios.create({
   baseURL: BASE_URL,
   timeout: 120000, // generous: a free/sleeping server can take ~1 min to wake up
@@ -36,6 +51,16 @@ api.interceptors.request.use((config) => {
   Object.assign(config.headers, clientHeaders());
   return config;
 });
+api.interceptors.response.use(
+  (response) => {
+    reportReachable(true);
+    return response;
+  },
+  (error) => {
+    if (!axios.isCancel(error)) reportReachable(!isUnreachable(error));
+    return Promise.reject(error);
+  },
+);
 
 // ── Documents ─────────────────────────────────────────────────────────────────
 // Returns immediately with status "processing"; indexing continues on the server.
@@ -66,16 +91,23 @@ export const deleteDocument = async (docId) => {
 // ── Chat (streaming) ──────────────────────────────────────────────────────────
 // Calls onSources(list) once, then onToken(text) for each piece of the answer.
 export const streamMessage = async (documentId, message, conversationHistory, { onSources, onToken, signal }) => {
-  const response = await fetch(`${BASE_URL}/chat/stream`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...clientHeaders() },
-    body: JSON.stringify({
-      document_id: documentId,
-      message,
-      conversation_history: conversationHistory,
-    }),
-    signal,
-  });
+  let response;
+  try {
+    response = await fetch(`${BASE_URL}/chat/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...clientHeaders() },
+      body: JSON.stringify({
+        document_id: documentId,
+        message,
+        conversation_history: conversationHistory,
+      }),
+      signal,
+    });
+  } catch (error) {
+    if (error.name !== 'AbortError') reportReachable(false);
+    throw error;
+  }
+  reportReachable(!GATEWAY_ERRORS.includes(response.status));
 
   if (!response.ok) {
     let detail = `Request failed (${response.status})`;
@@ -112,6 +144,8 @@ export const streamMessage = async (documentId, message, conversationHistory, { 
 // ── Health ────────────────────────────────────────────────────────────────────
 export const checkHealth = async () => {
   const { data } = await axios.get(`${ROOT_URL}/health`, { timeout: 120000 });
+  // A host's "waking up" HTML page can come back as 200: only trust our JSON.
+  if (data?.status !== 'ok') throw new Error('Unexpected /health response');
   return data;
 };
 
